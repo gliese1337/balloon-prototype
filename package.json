@@ -1,0 +1,25 @@
+{
+  "name": "balloon",
+  "version": "1.0.0",
+  "description": "A balloon navigation game",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "electron ."
+  },
+  "repository": "https://github.com/gliese1337/balloon-game",
+  "keywords": [
+    "balloon",
+    "game"
+  ],
+  "author": "Logan Kearsley",
+  "license": "CC0-1.0",
+  "devDependencies": {
+    "@types/seedrandom": "^2.4.28",
+    "electron": "^1.4.1",
+    "typescript": "^3.4.5"
+  },
+  "dependencies": {
+    "seedrandom": "^3.0.1"
+  }
+}

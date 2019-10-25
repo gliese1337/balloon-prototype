@@ -1,0 +1,35 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title>Balloon</title>
+<meta charset="utf-8">
+<style>
+    body {font-size:14px; text-align:center;}             /* center everything */
+</style>
+</head>
+
+<body>
+<canvas id="theCanvas" width="600" height="240"></canvas>
+
+<div>
+    Flow speed
+    <input id="speedSlider" type="range" min="0" max="0.12" step="0.005" value="0.1">
+    &nbsp;&nbsp;Viscosity
+    <input id="viscSlider" type="range" min="0.005" max="0.2" step="0.005" value="0.02">
+</div>
+<div style="margin-top:3px">
+    <select id="mouseSelect">
+        <option value="draw">Draw barriers</option>
+        <option value="erase">Erase barriers</option>
+    </select>
+    <input id="clearButton" type="button" value="Clear barriers">
+</div>
+<div>
+    Contrast:
+    <input id="contrastSlider" type="range" min="-10" max="10" step="1" value="0">
+</div>
+<script>
+  require('./bin')
+</script>
+</body>
+</html>
