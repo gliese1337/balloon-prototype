@@ -3,8 +3,18 @@ const weights = [4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36];
 const cxs = [0, 0, 0, 1, -1, 1, -1, 1, -1];
 const cys = [0, 1, -1, 0, 0, 1, 1, -1, -1];
 
+function createVectors(size: number) {
+  const buffer = new ArrayBuffer(36*size);
+  return Array.from({ length: 9 }, (_, i) => {
+    const v = new Float32Array(buffer, 4*i*size, size);
+    v.fill(weights[i]);
+    return v;
+  });
+}
+
 export default class LatticeBoltzmann {
   private vectors: Float32Array[];            // microscopic densities along each lattice direction
+  private swap: Float32Array[];
   public rho: Float32Array;           // macroscopic density
 
   constructor(public xdim: number, public ydim: number) {
@@ -12,16 +22,10 @@ export default class LatticeBoltzmann {
     // To index into these arrays, use x + y*xdim, traversing rows first and then columns.
     const size = 4*xdim * ydim;
 
-    const buffer = new ArrayBuffer(40*size);
-    const vectors = Array.from({ length: 9 }, (_, i) => {
-      const v = new Float32Array(buffer, 4*i*size, size);
-      v.fill(weights[i]);
-      return v;
-    });
-
-    this.vectors = vectors;
+    this.vectors = createVectors(size);
+    this.swap = createVectors(size);
   
-    this.rho = new Float32Array(buffer, 36*size, size);
+    this.rho = new Float32Array(size);
     this.rho.fill(1);
   }
 
@@ -57,55 +61,47 @@ export default class LatticeBoltzmann {
         v[i] = omega * eq + invomega*v[i];
       }
     }
+
+    //this.swap = vectors;
+    //this.vectors = swap;
   }
 
   // Move particles along their directions of motion:
   public stream(barriers: boolean[]) {
-    const { xdim, ydim, vectors } = this;
+    const { xdim, ydim, vectors, swap } = this;
     const [, N, S, E, W, NE, NW, SE, SW] = vectors;
+    const [, sN, sS, sE, sW, sNE, sNW, sSE, sSW] = swap;
 
-    const max = xdim * ydim;
-    for (let y=xdim-1; y<max; y+=xdim) {
-      // at right end, copy left-flowing densities from next column to the left
-      W[y] = W[y-1];
-      NW[y] = NW[y-1];
-      SW[y] = SW[y-1];
-    }
+    sN.set(N); sS.set(S); sE.set(E); sW.set(W);
+    sNE.set(NE); sNW.set(NW); sSE.set(SE); sSW.set(SW);
 
-    for (let y=(ydim-2)*xdim; y>0; y-=xdim) {
-      const xlimit = xdim + y - 1;
-      for (let x=1+y; x<xlimit; x++) {            // first start in NW corner...
-        N[x] = N[x-xdim];            // move the north-moving particles
-        NW[x] = NW[x+1-xdim];        // and the northwest-moving particles
-      }
-      for (let x=xdim-2+y; x>y; x--) {            // now start in NE corner...
-        E[x] = E[x-1];            // move the east-moving particles
-        NE[x] = NE[x-1-xdim];        // and the northeast-moving particles
-      }
-    }
-    const ylimit = (ydim-1)*xdim;
-    for (let y=xdim; y<ylimit; y+=xdim) {
-      for (let x=xdim-2+y; x>y; x--) {             // now start in SE corner...
-        S[x] = S[x+xdim];            // move the south-moving particles
-        SE[x] = SE[x-1+xdim];        // and the southeast-moving particles
-      }
-      const xlimit = xdim + y - 1;
-      for (let x=1+y; x<xlimit; x++) { // now start in the SW corner...
-        W[x] = W[x+1];            // move the west-moving particles
-        SW[x] = SW[x+1+xdim];        // and the southwest-moving particles
+    const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
+
+    for (let y=1; y<ydim-1; y++) {
+      for (let x=1; x<xdim-1; x++) {
+        const i = index(x, y);
+        N[i] = sN[index(x, y-1)];     // move the north-moving particles
+        NW[i] = sNW[index(x+1, y-1)]; // move the northwest-moving particles
+        E[i] = sE[index(x-1, y)];     // move the east-moving particles
+        NE[i] = sNE[index(x-1, y-1)]; // move the northeast-moving particles
+        S[i] = sS[index(x, y+1)];     // move the south-moving particles
+        SE[i] = sSE[index(x-1, y+1)]; // move the southeast-moving particles
+        W[i] = sW[index(x+1, y)];     // move the west-moving particles
+        SW[i] = sSW[index(x+1, y+1)]; // move the southwest-moving particles
       }
     }
-    for (let y=xdim; y<ylimit; y+=xdim) {                // Now handle bounce-back from barriers
-      for (let x=1+y; x<y+xdim-1; x++) {
-        if (barriers[x]) {
-            E[x+1] = W[x];
-            W[x-1] = E[x];
-            N[x+xdim] = S[x];
-            S[x-xdim] = N[x];
-            NE[x+1+xdim] = SW[x];
-            NW[x-1+xdim] = SE[x];
-            SE[x+1-xdim] = NW[x];
-            SW[x-1-xdim] = NE[x];
+    for (let y=0; y<ydim; y++) { // Now handle bounce-back from barriers
+      for (let x=0; x<xdim; x++) {
+        const i = index(x, y);
+        if (barriers[i]) {
+            E[index(x+1, y)] = W[i];
+            W[index(x-1, y)] = E[i];
+            N[index(x, y+1)] = S[i];
+            S[index(x, y-1)] = N[i];
+            NE[index(x+1, y+1)] = SW[i];
+            NW[index(x-1, y+1)] = SE[i];
+            SE[index(x+1, y-1)] = NW[i];
+            SW[index(x-1, y-1)] = NE[i];
             // Force on the barrier:
             // barrierFx += nE[index] + nNE[index] + nSE[index] - nW[index] - nNW[index] - nSW[index];
             // barrierFy += nN[index] + nNE[index] + nNW[index] - nS[index] - nSE[index] - nSW[index];

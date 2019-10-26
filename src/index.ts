@@ -89,7 +89,7 @@ function setBoundaries(LB: LatticeBoltzmann) {
     const u0 = Number(speedSlider.value);
     for (let y=0; y<ydim; y++) {
         LB.setEquilibrium(0, y, u0, 0, 1);
-        //LB.setEquilibrium(xdim-1, y, u0, 0, 1);
+        LB.setEquilibrium(xdim-1, y, u0, 0, 1);
     }
 }
 
@@ -154,4 +154,12 @@ function mousePressDrag(e: MouseEvent) {
     }
 });
 
-requestAnimationFrame(() => simulate(new LatticeBoltzmann(xdim, ydim)));
+const LB = new LatticeBoltzmann(xdim, ydim);
+/*const u0 = Number(speedSlider.value);
+for (let y=0; y<ydim; y++) {
+    for (let x = 0; x<xdim; x++) {
+        LB.setEquilibrium(x, y, u0, 0, 1);
+    }
+}*/
+
+requestAnimationFrame(() => simulate(LB));
