@@ -6,9 +6,9 @@ const cys = [0, 1, -1, 0, 0, 1, 1, -1, -1];
 
 function createVectors(size: number) {
   const buffer = new ArrayBuffer(4*9*size);
-  return Array.from({ length: 9 }, (_, i) => {
-    const v = new Float32Array(buffer, 4*i*size, size);
-    v.fill(weights[i]);
+  return Array.from({ length: size }, (_, i) => {
+    const v = new Float32Array(buffer, 4*9*i, 9);
+    v.set(weights);
     return v;
   });
 }
@@ -37,14 +37,17 @@ export default class LatticeBoltzmann {
     const invomega = 1 - omega;
     const max = xdim * ydim;
     for (let i=0; i<max; i++) {
+      // vectors for this lattice location
+      const vecs = vectors[i];
+
       // macroscopic density
-      const newrho = vectors.reduce((a, v) => a + v[i], 0);
+      const newrho = vecs.reduce((a, v) => a + v);
       rho[i] = newrho;
       
       // macroscopic velocity components
       let ux = 0, uy = 0;
       for (let j = 1; j < 9; j++) {
-        const v = vectors[j][i];
+        const v = vecs[j];
         ux += cxs[j]*v
         uy += cys[j]*v;
       }
@@ -63,10 +66,9 @@ export default class LatticeBoltzmann {
 
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
       for (let j = 0; j < 9; j++) {
-        const v = vectors[j];
         const dir = cxs[j]*ux + cys[j]*uy;
         const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-        v[i] = omega * eq + invomega*v[i];
+        vecs[j] = omega * eq + invomega*vecs[j];
       }
     }
 
@@ -76,10 +78,11 @@ export default class LatticeBoltzmann {
 
   // Move particles along their directions of motion:
   public stream(barriers: boolean[]) {
-    const { xdim, ydim, vectors: v, swap: s } = this;
+    const { xdim, ydim, vectors, swap } = this;
 
-    for (let i = 1; i < 9; i++) {
-      s[i].set(v[i]);
+    const size = xdim*ydim;
+    for (let i = 1; i < size; i++) {
+      swap[i].set(vectors[i]);
     }
 
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
@@ -87,8 +90,9 @@ export default class LatticeBoltzmann {
     for (let y=1; y<ydim-1; y++) {
       for (let x=1; x<xdim-1; x++) {
         const i = index(x, y);
+        const v = vectors[i];
         for (let j=1;j<9;j++) {
-          v[j][i] = s[j][index(x-cxs[j], y-cys[j])]; // move particles
+          v[j] = swap[index(x-cxs[j], y-cys[j])][j]; // move particles
         }
       }
     }
@@ -96,8 +100,9 @@ export default class LatticeBoltzmann {
       for (let x=0; x<xdim; x++) {
         const i = index(x, y);
         if (barriers[i]) {
+          const s = swap[i];
           for (let j=1;j<9;j++) {
-            v[j][index(x+cxs[j], y+cys[j])] = s[opp[j]][i]; // move particles
+            vectors[index(x+cxs[j], y+cys[j])][j] = s[opp[j]]; // move particles
           }
           // Force on the barrier:
           // barrierFx += v[E][i] + v[NE][i] + v[SE][i] - v[W][i] - v[NW][i] - v[SW][i];
@@ -112,11 +117,12 @@ export default class LatticeBoltzmann {
     const { xdim, vectors } = this;
     const i = x + y*xdim;
     this.rho[i] = rho;
+    const v = vectors[i];
 
     const u2 =  1.5 * (ux * ux + uy * uy);
     for (let j = 0; j < 9; j++) {
       const dir = cxs[j]*ux + cys[j]*uy;
-      vectors[j][i] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
+      v[j] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
     }
   }
 }
