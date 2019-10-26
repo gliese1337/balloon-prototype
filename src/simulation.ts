@@ -5,7 +5,7 @@ const cxs = [0, 0, 0, 1, -1, 1, -1, 1, -1];
 const cys = [0, 1, -1, 0, 0, 1, 1, -1, -1];
 
 function createVectors(size: number) {
-  const buffer = new ArrayBuffer(36*size);
+  const buffer = new ArrayBuffer(4*9*size);
   return Array.from({ length: 9 }, (_, i) => {
     const v = new Float32Array(buffer, 4*i*size, size);
     v.fill(weights[i]);
@@ -21,7 +21,7 @@ export default class LatticeBoltzmann {
   constructor(public xdim: number, public ydim: number) {
     // Create the arrays of fluid particle densities, etc. (using 1D arrays for speed):
     // To index into these arrays, use x + y*xdim, traversing rows first and then columns.
-    const size = 4*xdim * ydim;
+    const size = xdim * ydim;
 
     this.vectors = createVectors(size);
     this.swap = createVectors(size);
