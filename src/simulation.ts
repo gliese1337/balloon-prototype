@@ -5,18 +5,18 @@ const cxs = [0, 0, 0, 1, -1, 1, -1, 1, -1];
 const cys = [0, 1, -1, 0, 0, 1, 1, -1, -1];
 
 function createVectors(size: number) {
-  const buffer = new ArrayBuffer(4*9*size);
-  return Array.from({ length: size }, (_, i) => {
-    const v = new Float32Array(buffer, 4*9*i, 9);
-    v.set(weights);
-    return v;
-  });
+  const wordsize = 9*size;
+  const buffer = new Float32Array(wordsize);
+  for (let i = 0; i < wordsize; i+=9) {
+    buffer.set(weights, i);
+  }
+  return buffer;
 }
 
-export default class LatticeBoltzmann {
-  private vectors: Float32Array[];            // microscopic densities along each lattice direction
-  private swap: Float32Array[];
-  public rho: Float32Array;           // macroscopic density
+export default class LatticeBoltzmann {        
+  private vectors: Float32Array; // microscopic densities along each lattice direction
+  private swap: Float32Array;
+  public rho: Float32Array;    // macroscopic density
 
   constructor(public xdim: number, public ydim: number) {
     // Create the arrays of fluid particle densities, etc. (using 1D arrays for speed):
@@ -36,18 +36,18 @@ export default class LatticeBoltzmann {
     const omega = 1 / (3*viscosity + 0.5); // reciprocal of relaxation time
     const invomega = 1 - omega;
     const max = xdim * ydim;
-    for (let i=0; i<max; i++) {
-      // vectors for this lattice location
-      const vecs = vectors[i];
-
+    for (let i=0,i9=0; i<max; i++,i9+=9) {
       // macroscopic density
-      const newrho = vecs.reduce((a, v) => a + v);
+      let newrho = 0;
+      for (let j=0;j<9;j++){
+        newrho += vectors[i9+j];
+      }
       rho[i] = newrho;
       
       // macroscopic velocity components
       let ux = 0, uy = 0;
       for (let j = 1; j < 9; j++) {
-        const v = vecs[j];
+        const v = vectors[i9+j];
         ux += cxs[j]*v
         uy += cys[j]*v;
       }
@@ -68,7 +68,7 @@ export default class LatticeBoltzmann {
       for (let j = 0; j < 9; j++) {
         const dir = cxs[j]*ux + cys[j]*uy;
         const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-        vecs[j] = omega * eq + invomega*vecs[j];
+        vectors[i9+j] = omega * eq + invomega * vectors[i9+j];
       }
     }
 
@@ -78,31 +78,28 @@ export default class LatticeBoltzmann {
 
   // Move particles along their directions of motion:
   public stream(barriers: boolean[]) {
-    const { xdim, ydim, vectors, swap } = this;
+    const { xdim, ydim, swap, vectors } = this;
 
-    const size = xdim*ydim;
-    for (let i = 1; i < size; i++) {
-      swap[i].set(vectors[i]);
-    }
+    swap.set(vectors);
 
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
 
     for (let y=1; y<ydim-1; y++) {
       for (let x=1; x<xdim-1; x++) {
         const i = index(x, y);
-        const v = vectors[i];
+        const i9 = i*9;
         for (let j=1;j<9;j++) {
-          v[j] = swap[index(x-cxs[j], y-cys[j])][j]; // move particles
+          vectors[i9 + j] = swap[9*index(x-cxs[j], y-cys[j]) + j]; // move particles
         }
       }
     }
     for (let y=0; y<ydim; y++) { // Now handle bounce-back from barriers
       for (let x=0; x<xdim; x++) {
         const i = index(x, y);
+        const i9 = i*9;
         if (barriers[i]) {
-          const s = swap[i];
           for (let j=1;j<9;j++) {
-            vectors[index(x+cxs[j], y+cys[j])][j] = s[opp[j]]; // move particles
+            vectors[9*index(x+cxs[j], y+cys[j])+j] = swap[i9 + opp[j]]; // move particles
           }
           // Force on the barrier:
           // barrierFx += v[E][i] + v[NE][i] + v[SE][i] - v[W][i] - v[NW][i] - v[SW][i];
@@ -117,12 +114,12 @@ export default class LatticeBoltzmann {
     const { xdim, vectors } = this;
     const i = x + y*xdim;
     this.rho[i] = rho;
-    const v = vectors[i];
 
+    const i9 = i*9;
     const u2 =  1.5 * (ux * ux + uy * uy);
     for (let j = 0; j < 9; j++) {
       const dir = cxs[j]*ux + cys[j]*uy;
-      v[j] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
+      vectors[i9+j] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
     }
   }
 }
