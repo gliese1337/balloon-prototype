@@ -14,25 +14,21 @@ function createVectors(size: number) {
 }
 
 export default class LatticeBoltzmann {        
-  private vectors: Float32Array; // microscopic densities along each lattice direction
-  private swap: Float32Array;
+  private streamed: Float32Array; // microscopic densities along each lattice direction
+  private collided: Float32Array;
   public rho: Float32Array;    // macroscopic density
 
   constructor(public xdim: number, public ydim: number) {
     // Create the arrays of fluid particle densities, etc. (using 1D arrays for speed):
-    // To index into these arrays, use x + y*xdim, traversing rows first and then columns.
     const size = xdim * ydim;
-
-    this.vectors = createVectors(size);
-    this.swap = createVectors(size);
-  
+    this.streamed = createVectors(size);
+    this.collided = createVectors(size);
     this.rho = new Float32Array(size);
-    this.rho.fill(1);
   }
 
   // Collide particles within each cell (here's the physics!):
   public collide(viscosity: number) {
-    const { xdim, ydim, rho, vectors } = this;
+    const { xdim, ydim, rho, collided, streamed } = this;
     const omega = 1 / (3*viscosity + 0.5); // reciprocal of relaxation time
     const invomega = 1 - omega;
     const max = xdim * ydim;
@@ -40,14 +36,14 @@ export default class LatticeBoltzmann {
       // macroscopic density
       let newrho = 0;
       for (let j=0;j<9;j++){
-        newrho += vectors[i9+j];
+        newrho += streamed[i9+j];
       }
       rho[i] = newrho;
       
       // macroscopic velocity components
       let ux = 0, uy = 0;
       for (let j = 1; j < 9; j++) {
-        const v = vectors[i9+j];
+        const v = streamed[i9+j];
         ux += cxs[j]*v
         uy += cys[j]*v;
       }
@@ -68,38 +64,32 @@ export default class LatticeBoltzmann {
       for (let j = 0; j < 9; j++) {
         const dir = cxs[j]*ux + cys[j]*uy;
         const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-        vectors[i9+j] = omega * eq + invomega * vectors[i9+j];
+        collided[i9+j] = omega * eq + invomega * streamed[i9+j];
       }
     }
-
-    //this.swap = vectors;
-    //this.vectors = swap;
   }
 
   // Move particles along their directions of motion:
   public stream(barriers: boolean[]) {
-    const { xdim, ydim, swap, vectors } = this;
-
-    swap.set(vectors);
-
+    const { xdim, ydim, collided, streamed } = this;
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
 
     for (let y=1; y<ydim-1; y++) {
       for (let x=1; x<xdim-1; x++) {
         const i = index(x, y);
         const i9 = i*9;
-        for (let j=1;j<9;j++) {
-          vectors[i9 + j] = swap[9*index(x-cxs[j], y-cys[j]) + j]; // move particles
+        for (let j=0;j<9;j++) {
+          streamed[i9 + j] = collided[9*index(x-cxs[j], y-cys[j]) + j]; // move particles
         }
       }
     }
-    for (let y=0; y<ydim; y++) { // Now handle bounce-back from barriers
+    for (let y=0; y<ydim; y++) { // handle bounce-back from barriers
       for (let x=0; x<xdim; x++) {
         const i = index(x, y);
         const i9 = i*9;
         if (barriers[i]) {
           for (let j=1;j<9;j++) {
-            vectors[9*index(x+cxs[j], y+cys[j])+j] = swap[i9 + opp[j]]; // move particles
+            streamed[9*index(x+cxs[j], y+cys[j])+j] = collided[i9 + opp[j]]; // move particles
           }
           // Force on the barrier:
           // barrierFx += v[E][i] + v[NE][i] + v[SE][i] - v[W][i] - v[NW][i] - v[SW][i];
@@ -111,7 +101,7 @@ export default class LatticeBoltzmann {
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
   public setEquilibrium(x: number, y: number, ux: number, uy: number, rho: number) {
-    const { xdim, vectors } = this;
+    const { xdim, streamed } = this;
     const i = x + y*xdim;
     this.rho[i] = rho;
 
@@ -119,7 +109,7 @@ export default class LatticeBoltzmann {
     const u2 =  1.5 * (ux * ux + uy * uy);
     for (let j = 0; j < 9; j++) {
       const dir = cxs[j]*ux + cys[j]*uy;
-      vectors[i9+j] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
+      streamed[i9+j] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
     }
   }
 }
