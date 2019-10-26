@@ -1,4 +1,5 @@
-// [Z, N, S, E, W, NE, NW, SE, SW]
+const [N, S, E, W, NE, NW, SE, SW] = [1, 2, 3, 4, 5, 6, 7, 8];
+const opp = [0, S, N, W, E, SW, SE, NW, NE];
 const weights = [4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36];
 const cxs = [0, 0, 0, 1, -1, 1, -1, 1, -1];
 const cys = [0, 1, -1, 0, 0, 1, 1, -1, -1];
@@ -32,13 +33,23 @@ export default class LatticeBoltzmann {
   // Collide particles within each cell (here's the physics!):
   public collide(viscosity: number) {
     const { xdim, ydim, rho, vectors } = this;
-    const [Z, N, S, E, W, NE, NW, SE, SW] = vectors;
     const omega = 1 / (3*viscosity + 0.5); // reciprocal of relaxation time
     const invomega = 1 - omega;
     const max = xdim * ydim;
     for (let i=0; i<max; i++) {
-      const newrho = Z[i]+N[i]+S[i]+E[i]+W[i]+NW[i]+NE[i]+SW[i]+SE[i];
+      // macroscopic density
+      const newrho = vectors.reduce((a, v) => a + v[i], 0);
       rho[i] = newrho;
+      
+      // macroscopic velocity components
+      let ux = 0, uy = 0;
+      for (let j = 1; j < 9; j++) {
+        const v = vectors[j][i];
+        ux += cxs[j]*v
+        uy += cys[j]*v;
+      }
+      ux/=newrho;
+      uy/=newrho;
 
       /*
       f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
@@ -50,14 +61,11 @@ export default class LatticeBoltzmann {
             1/(2 c_s^2) = 1.5
       */
 
-      // macroscopic velocity components
-      const ux = (E[i]+NE[i]+SE[i]-W[i]-NW[i]-SW[i])/newrho;
-      const uy = (N[i]+NE[i]+NW[i]-S[i]-SE[i]-SW[i])/newrho;
-      const u2 =  1.5 * (ux * ux + uy * uy);
+      const u2 =  1 - 1.5 * (ux * ux + uy * uy);
       for (let j = 0; j < 9; j++) {
         const v = vectors[j];
         const dir = cxs[j]*ux + cys[j]*uy;
-        const eq = weights[j] * newrho * (1 + 3 * dir + 4.5 * dir * dir - u2);
+        const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
         v[i] = omega * eq + invomega*v[i];
       }
     }
@@ -68,43 +76,32 @@ export default class LatticeBoltzmann {
 
   // Move particles along their directions of motion:
   public stream(barriers: boolean[]) {
-    const { xdim, ydim, vectors, swap } = this;
-    const [, N, S, E, W, NE, NW, SE, SW] = vectors;
-    const [, sN, sS, sE, sW, sNE, sNW, sSE, sSW] = swap;
+    const { xdim, ydim, vectors: v, swap: s } = this;
 
-    sN.set(N); sS.set(S); sE.set(E); sW.set(W);
-    sNE.set(NE); sNW.set(NW); sSE.set(SE); sSW.set(SW);
+    for (let i = 1; i < 9; i++) {
+      s[i].set(v[i]);
+    }
 
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
 
     for (let y=1; y<ydim-1; y++) {
       for (let x=1; x<xdim-1; x++) {
         const i = index(x, y);
-        N[i] = sN[index(x, y-1)];     // move the north-moving particles
-        NW[i] = sNW[index(x+1, y-1)]; // move the northwest-moving particles
-        E[i] = sE[index(x-1, y)];     // move the east-moving particles
-        NE[i] = sNE[index(x-1, y-1)]; // move the northeast-moving particles
-        S[i] = sS[index(x, y+1)];     // move the south-moving particles
-        SE[i] = sSE[index(x-1, y+1)]; // move the southeast-moving particles
-        W[i] = sW[index(x+1, y)];     // move the west-moving particles
-        SW[i] = sSW[index(x+1, y+1)]; // move the southwest-moving particles
+        for (let j=1;j<9;j++) {
+          v[j][i] = s[j][index(x-cxs[j], y-cys[j])]; // move particles
+        }
       }
     }
     for (let y=0; y<ydim; y++) { // Now handle bounce-back from barriers
       for (let x=0; x<xdim; x++) {
         const i = index(x, y);
         if (barriers[i]) {
-            E[index(x+1, y)] = W[i];
-            W[index(x-1, y)] = E[i];
-            N[index(x, y+1)] = S[i];
-            S[index(x, y-1)] = N[i];
-            NE[index(x+1, y+1)] = SW[i];
-            NW[index(x-1, y+1)] = SE[i];
-            SE[index(x+1, y-1)] = NW[i];
-            SW[index(x-1, y-1)] = NE[i];
-            // Force on the barrier:
-            // barrierFx += nE[index] + nNE[index] + nSE[index] - nW[index] - nNW[index] - nSW[index];
-            // barrierFy += nN[index] + nNE[index] + nNW[index] - nS[index] - nSE[index] - nSW[index];
+          for (let j=1;j<9;j++) {
+            v[j][index(x+cxs[j], y+cys[j])] = s[opp[j]][i]; // move particles
+          }
+          // Force on the barrier:
+          // barrierFx += v[E][i] + v[NE][i] + v[SE][i] - v[W][i] - v[NW][i] - v[SW][i];
+          // barrierFy += v[N][i] + v[NE][i] + v[NW][i] - v[S][i] - v[SE][i] - v[SW][i];
         }
       }
     }
