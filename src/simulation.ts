@@ -46,13 +46,15 @@ export default class LatticeBoltzmann {
       for (let j=0;j<q;j++){
         newrho += streamed[iq+j];
       }
+      // hack for stability
+      if (newrho <= 0) newrho = 0.01;
       _rho[i] = newrho;
       
       // macroscopic velocity components
       let ux = 0, uy = 0;
       for (let j = 1; j < q; j++) {
         const v = streamed[iq+j];
-        ux += cxs[j]*v
+        ux += cxs[j]*v;
         uy += cys[j]*v;
       }
       ux/=newrho;
@@ -80,8 +82,9 @@ export default class LatticeBoltzmann {
   public stream(barriers: boolean[]) {
     const { xdim, ydim, collided, streamed } = this;
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
-    const cIndex = (x: number, y: number, s: -1|1, j: number) =>
-                      q*(((x+s*cxs[j])%xdim)+((y+s*cys[j])%ydim)*xdim)+j;
+    const max = xdim * ydim;
+    const cIndex = (i: number, s: -1|1, j: number) =>
+                      q*((i+s*(cxs[j]+cys[j]*xdim))%max)+j;
 
     // Move particles along their directions of motion:
     for (let y=1; y<ydim-1; y++) {
@@ -89,20 +92,16 @@ export default class LatticeBoltzmann {
         const i = index(x, y);
         const iq = i*q;
         for (let j=0;j<q;j++) {
-          streamed[iq + j] = collided[cIndex(x, y, -1, j)];
+          streamed[iq + j] = collided[cIndex(i, -1, j)];
         }
       }
     }
 
     // Handle bounce-back from barriers
-    for (let y=0; y<ydim; y++) {
-      for (let x=0; x<xdim; x++) {
-        const i = index(x, y);
-        const iq = i*q;
-        if (barriers[i]) {
-          for (let j=1;j<q;j++) {
-            streamed[cIndex(x, y, 1, j)] = collided[iq + opp[j]];
-          }
+    for (let i=0,iq=0; i<max; i++,iq+=q) {
+      if (barriers[i]) {
+        for (let j=1;j<q;j++) {
+          streamed[cIndex(i, 1, j)] = collided[iq + opp[j]];
         }
       }
     }

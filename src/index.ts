@@ -19,7 +19,7 @@ const barrier: boolean[] = Array.from({ length: xdim*ydim }, () => false);
 
 // Create a simple linear "wall" barrier (intentionally a little offset from center):
 const barrierSize = ydim/6;
-for (let y=(ydim/2)-barrierSize; y<=(ydim/2)+barrierSize; y++) {
+for (let y=(ydim/2)-barrierSize-1; y<=(ydim/2)+barrierSize-1; y++) {
   const x = Math.round(ydim/3);
   barrier[x+y*xdim] = true;
 }
@@ -111,39 +111,6 @@ function paintCanvas(LB: LatticeBoltzmann) {
   context.putImageData(image, 0, 0);
 }
 
-
-let mouseIsDown = false;
-
-canvas.addEventListener('mousedown', (e: MouseEvent) => {
-  mouseIsDown = true;
-  mousePressDrag(e);
-}, false);
-
-canvas.addEventListener('mousemove', (e: MouseEvent) => {
-  if (mouseIsDown) {
-    mousePressDrag(e);
-  }
-}, false);
-
-document.body.addEventListener('mouseup', () => {
-  mouseIsDown = false;
-}, false);  // button release could occur outside canvas
-
-// Handle mouse press or drag:
-function mousePressDrag(e: MouseEvent) {
-  e.preventDefault();
-  const x = Math.floor(e.pageX - canvas.offsetLeft);
-  const y = Math.floor(e.pageY - canvas.offsetTop);
-
-  if (mouseSelect.selectedIndex === 0) {
-    if ((x > 1) && (x < xdim-2) && (y > 1) && (y < ydim-2)) {
-      barrier[x+y*xdim] = true;
-    }
-  } else {
-    barrier[x+y*xdim] = false;
-  }
-}
-
 // Clear all barriers:
 (document.getElementById('clearButton') as HTMLButtonElement).addEventListener('click', () => {
   const max = xdim * ydim;
@@ -159,5 +126,37 @@ for (let y=0; y<ydim; y++) {
     LB.setEquilibrium(x, y, u0, 0, 1);
   }
 }*/
+
+let mouseIsDown = false;
+
+canvas.addEventListener('mousedown', (e: MouseEvent) => {
+  mouseIsDown = true;
+  mousePressDrag(e);
+}, false);
+
+canvas.addEventListener('mousemove', mousePressDrag, false);
+
+document.body.addEventListener('mouseup', () => {
+  mouseIsDown = false;
+}, false);  // button release could occur outside canvas
+
+// Handle mouse press or drag:
+function mousePressDrag(e: MouseEvent) {
+  e.preventDefault();
+  const x = Math.floor(e.pageX - canvas.offsetLeft);
+  const y = Math.floor(e.pageY - canvas.offsetTop);
+
+  if (mouseIsDown) {
+    if (mouseSelect.selectedIndex === 0) {
+      if ((x > 1) && (x < xdim-2) && (y > 1) && (y < ydim-2)) {
+        barrier[x+y*xdim] = true;
+      }
+    } else {
+      barrier[x+y*xdim] = false;
+    }
+  } else {
+    console.log("Density:", LB.rho(x, y));
+  }
+}
 
 requestAnimationFrame(() => simulate(LB));
