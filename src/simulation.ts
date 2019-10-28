@@ -17,17 +17,25 @@ function createVectors(size: number) {
 export default class LatticeBoltzmann {        
   private streamed: Float32Array; // microscopic densities along each lattice direction
   private collided: Float32Array;
-  public rho: Float32Array;    // macroscopic density; cached for rendering
+  private _rho: Float32Array;    // macroscopic density; cached for rendering
 
-  constructor(public xdim: number, public ydim: number) {
+  constructor(public readonly xdim: number, public readonly ydim: number) {
     const size = xdim * ydim;
     this.streamed = createVectors(size);
     this.collided = createVectors(size);
-    this.rho = new Float32Array(size);
+    this._rho = new Float32Array(size);
+  }
+
+  public rho(x: number, y: number) {
+    return this._rho[(x%this.xdim)+(y%this.ydim)*this.xdim];
+  }
+
+  public index(x: number, y: number) {
+    return (x%this.xdim)+(y%this.ydim)*this.xdim;
   }
 
   public collide(viscosity: number) {
-    const { xdim, ydim, rho, collided, streamed } = this;
+    const { xdim, ydim, _rho, collided, streamed } = this;
     const tau = 3*viscosity + 0.5; // relation timescale
     const omega = 1 / tau;
     const invomega = 1 - omega;
@@ -38,7 +46,7 @@ export default class LatticeBoltzmann {
       for (let j=0;j<q;j++){
         newrho += streamed[iq+j];
       }
-      rho[i] = newrho;
+      _rho[i] = newrho;
       
       // macroscopic velocity components
       let ux = 0, uy = 0;
@@ -100,11 +108,16 @@ export default class LatticeBoltzmann {
     }
   }
 
+  public step(viscosity: number, barriers: boolean[]) {
+    this.collide(viscosity);
+    this.stream(barriers);
+  }
+
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
   public setEquilibrium(x: number, y: number, ux: number, uy: number, rho: number) {
     const { xdim, streamed } = this;
     const i = x + y*xdim;
-    this.rho[i] = rho;
+    this._rho[i] = rho;
 
     const iq = i*q;
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);

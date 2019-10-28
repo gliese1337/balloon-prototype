@@ -18,7 +18,7 @@ const ydim = canvas.height;
 const barrier: boolean[] = Array.from({ length: xdim*ydim }, () => false);
 
 // Create a simple linear "wall" barrier (intentionally a little offset from center):
-const barrierSize = 8;
+const barrierSize = ydim/6;
 for (let y=(ydim/2)-barrierSize; y<=(ydim/2)+barrierSize; y++) {
   const x = Math.round(ydim/3);
   barrier[x+y*xdim] = true;
@@ -74,12 +74,11 @@ function simulate(LB: LatticeBoltzmann) {
   // Execute a bunch of time steps:
   let c = 0;
   do {
-    LB.collide(+viscSlider.value);
-    LB.stream(barrier);
+    LB.step(+viscSlider.value, barrier);
     c++;
   } while(Date.now() < tlimit);
   console.log("Iterations per frame:", c);
-  paintCanvas(LB.rho);
+  paintCanvas(LB);
 
   requestAnimationFrame(() => simulate(LB));
 }
@@ -93,16 +92,15 @@ function setBoundaries(LB: LatticeBoltzmann) {
   }
 }
 
-function paintCanvas(rho: Float32Array) {
+function paintCanvas(LB: LatticeBoltzmann) {
   let cIndex=0;
   const contrast = Math.pow(1.2,Number(contrastSlider.value));
-  let i = 0;
   for (let y=0; y<ydim; y++) {
-    for (let x=0; x<xdim; x++, i++) {
-      if (barrier[i]) {
+    for (let x=0; x<xdim; x++) {
+      if (barrier[LB.index(x,y)]) {
         cIndex = nColors + 1;  // kludge for barrier color which isn't really part of color map
       } else {
-        cIndex = Math.round(nColors * ((rho[i]-1)*6*contrast + 0.5));
+        cIndex = Math.round(nColors * ((LB.rho(x,y)-1)*6*contrast + 0.5));
         if (cIndex < 0) cIndex = 0;
         else if (cIndex > nColors) cIndex = nColors;
       }
@@ -110,7 +108,7 @@ function paintCanvas(rho: Float32Array) {
     }
   }
 
-  context.putImageData(image, 0, 0);    // blast image to the screen
+  context.putImageData(image, 0, 0);
 }
 
 
