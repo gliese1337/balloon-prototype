@@ -1,13 +1,14 @@
-const [N, S, E, W, NE, NW, SE, SW] = [1, 2, 3, 4, 5, 6, 7, 8];
-const opp = [0, S, N, W, E, SW, SE, NW, NE];
 const weights = [4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36];
-const cxs = [0, 0, 0, 1, -1, 1, -1, 1, -1];
-const cys = [0, 1, -1, 0, 0, 1, 1, -1, -1];
+const cxs =     [  0,   0,   0,   1,  -1,    1,   -1,    1,   -1];
+const cys =     [  0,   1,  -1,   0,   0,    1,   -1,   -1,    1];
+const opp =     [  0,   2,   1,   4,   3,    6,    5,    8,    7];
+
+const q = 9;
 
 function createVectors(size: number) {
-  const wordsize = 9*size;
+  const wordsize = q*size;
   const buffer = new Float32Array(wordsize);
-  for (let i = 0; i < wordsize; i+=9) {
+  for (let i = 0; i < wordsize; i+=q) {
     buffer.set(weights, i);
   }
   return buffer;
@@ -31,18 +32,18 @@ export default class LatticeBoltzmann {
     const omega = 1 / tau;
     const invomega = 1 - omega;
     const max = xdim * ydim;
-    for (let i=0,i9=0; i<max; i++,i9+=9) {
+    for (let i=0,iq=0; i<max; i++,iq+=q) {
       // macroscopic density
       let newrho = 0;
-      for (let j=0;j<9;j++){
-        newrho += streamed[i9+j];
+      for (let j=0;j<q;j++){
+        newrho += streamed[iq+j];
       }
       rho[i] = newrho;
       
       // macroscopic velocity components
       let ux = 0, uy = 0;
-      for (let j = 1; j < 9; j++) {
-        const v = streamed[i9+j];
+      for (let j = 1; j < q; j++) {
+        const v = streamed[iq+j];
         ux += cxs[j]*v
         uy += cys[j]*v;
       }
@@ -60,10 +61,10 @@ export default class LatticeBoltzmann {
       */
 
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-      for (let j = 0; j < 9; j++) {
+      for (let j = 0; j < q; j++) {
         const dir = cxs[j]*ux + cys[j]*uy;
         const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-        collided[i9+j] = omega * eq + invomega * streamed[i9+j];
+        collided[iq+j] = omega * eq + invomega * streamed[iq+j];
       }
     }
   }
@@ -72,15 +73,15 @@ export default class LatticeBoltzmann {
     const { xdim, ydim, collided, streamed } = this;
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
     const cIndex = (x: number, y: number, s: -1|1, j: number) =>
-                      9*(((x+s*cxs[j])%xdim)+((y+s*cys[j])%ydim)*xdim)+j;
+                      q*(((x+s*cxs[j])%xdim)+((y+s*cys[j])%ydim)*xdim)+j;
 
     // Move particles along their directions of motion:
     for (let y=1; y<ydim-1; y++) {
       for (let x=1; x<xdim-1; x++) {
         const i = index(x, y);
-        const i9 = i*9;
-        for (let j=0;j<9;j++) {
-          streamed[i9 + j] = collided[cIndex(x, y, -1, j)];
+        const iq = i*q;
+        for (let j=0;j<q;j++) {
+          streamed[iq + j] = collided[cIndex(x, y, -1, j)];
         }
       }
     }
@@ -89,10 +90,10 @@ export default class LatticeBoltzmann {
     for (let y=0; y<ydim; y++) {
       for (let x=0; x<xdim; x++) {
         const i = index(x, y);
-        const i9 = i*9;
+        const iq = i*q;
         if (barriers[i]) {
-          for (let j=1;j<9;j++) {
-            streamed[cIndex(x, y, 1, j)] = collided[i9 + opp[j]];
+          for (let j=1;j<q;j++) {
+            streamed[cIndex(x, y, 1, j)] = collided[iq + opp[j]];
           }
         }
       }
@@ -105,11 +106,11 @@ export default class LatticeBoltzmann {
     const i = x + y*xdim;
     this.rho[i] = rho;
 
-    const i9 = i*9;
+    const iq = i*q;
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-    for (let j = 0; j < 9; j++) {
+    for (let j = 0; j < q; j++) {
       const dir = cxs[j]*ux + cys[j]*uy;
-      streamed[i9+j] =  weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
+      streamed[iq+j] =  weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
     }
   }
 }
