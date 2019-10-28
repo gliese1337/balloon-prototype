@@ -13,15 +13,18 @@ const contrastSlider = document.getElementById('contrastSlider') as HTMLSelectEl
 
 const xdim = canvas.width;
 const ydim = canvas.height;
+const zdim = 5;
 
 // boolean array of barrier locations
-const barrier: boolean[] = Array.from({ length: xdim*ydim }, () => false);
+const barrier: boolean[] = Array.from({ length: xdim*ydim*zdim }, () => false);
 
 // Create a simple linear "wall" barrier (intentionally a little offset from center):
 const barrierSize = ydim/6;
 const x = Math.round(xdim/2);
-for (let y=(ydim/2)-barrierSize-1; y<=(ydim/2)+barrierSize-1; y++) {
-  barrier[x+y*xdim] = true;
+for (let z=1;z<4;z++) {
+  for (let y=(ydim/2)-barrierSize-1; y<=(ydim/2)+barrierSize-1; y++) {
+    barrier[x+(y+z*ydim)*xdim] = true;
+  }
 }
 
 // Set up the array of colors for plotting (mimicks matplotlib "jet" colormap):
@@ -86,8 +89,10 @@ function simulate(LB: LatticeBoltzmann) {
 // Make fluid flow in from the left edge
 function setBoundaries(LB: LatticeBoltzmann) {
   const u0 = Number(speedSlider.value);
-  for (let y=Math.floor(ydim/3); y<Math.ceil(2*ydim/3); y++) {
-    LB.setEquilibrium(0, y, u0, 0, 1);
+  for (let y=0; y<ydim; y++) {
+    for (let z=0; z<zdim; z++) {
+      LB.setEquilibrium(0, y, z, u0, 0, 0, 1);
+    }
   }
 }
 
@@ -99,7 +104,7 @@ function paintCanvas(LB: LatticeBoltzmann) {
     if (barrier[i]) {
       cIndex = nColors + 1;
     } else {
-      cIndex = (nColors * ((LB.rho[i]-1)*contrast + 0.5))|0;
+      cIndex = (nColors * ((LB.rho[i+3*max]-1)*contrast + 0.5))|0;
       if (cIndex < 0) cIndex = 0;
       else if (cIndex > nColors) cIndex = nColors;
     }
@@ -111,13 +116,13 @@ function paintCanvas(LB: LatticeBoltzmann) {
 
 // Clear all barriers:
 (document.getElementById('clearButton') as HTMLButtonElement).addEventListener('click', () => {
-  const max = xdim * ydim;
+  const max = xdim * ydim * zdim;
   for (let i=0; i<max; i++) {
     barrier[i] = false;
   }
 });
 
-const LB = new LatticeBoltzmann(xdim, ydim);
+const LB = new LatticeBoltzmann(xdim, ydim, zdim);
 /*const u0 = Number(speedSlider.value);
 for (let y=0; y<ydim; y++) {
   for (let x = 0; x<xdim; x++) {
@@ -147,10 +152,10 @@ function mousePressDrag(e: MouseEvent) {
   if (mouseIsDown) {
     if (mouseSelect.selectedIndex === 0) {
       if ((x > 1) && (x < xdim-2) && (y > 1) && (y < ydim-2)) {
-        barrier[x+y*xdim] = true;
+        barrier[x+(y+3*ydim)*xdim] = true;
       }
     } else {
-      barrier[x+y*xdim] = false;
+      barrier[x+(y+3*ydim)*xdim] = false;
     }
   }
 }
