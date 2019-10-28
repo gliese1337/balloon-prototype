@@ -16,20 +16,19 @@ function createVectors(size: number) {
 export default class LatticeBoltzmann {        
   private streamed: Float32Array; // microscopic densities along each lattice direction
   private collided: Float32Array;
-  public rho: Float32Array;    // macroscopic density
+  public rho: Float32Array;    // macroscopic density; cached for rendering
 
   constructor(public xdim: number, public ydim: number) {
-    // Create the arrays of fluid particle densities, etc. (using 1D arrays for speed):
     const size = xdim * ydim;
     this.streamed = createVectors(size);
     this.collided = createVectors(size);
     this.rho = new Float32Array(size);
   }
 
-  // Collide particles within each cell (here's the physics!):
   public collide(viscosity: number) {
     const { xdim, ydim, rho, collided, streamed } = this;
-    const omega = 1 / (3*viscosity + 0.5); // reciprocal of relaxation time
+    const tau = 3*viscosity + 0.5; // relation timescale
+    const omega = 1 / tau;
     const invomega = 1 - omega;
     const max = xdim * ydim;
     for (let i=0,i9=0; i<max; i++,i9+=9) {
@@ -69,31 +68,32 @@ export default class LatticeBoltzmann {
     }
   }
 
-  // Move particles along their directions of motion:
   public stream(barriers: boolean[]) {
     const { xdim, ydim, collided, streamed } = this;
     const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
+    const cIndex = (x: number, y: number, s: -1|1, j: number) =>
+                      9*(((x+s*cxs[j])%xdim)+((y+s*cys[j])%ydim)*xdim)+j;
 
+    // Move particles along their directions of motion:
     for (let y=1; y<ydim-1; y++) {
       for (let x=1; x<xdim-1; x++) {
         const i = index(x, y);
         const i9 = i*9;
         for (let j=0;j<9;j++) {
-          streamed[i9 + j] = collided[9*index(x-cxs[j], y-cys[j]) + j]; // move particles
+          streamed[i9 + j] = collided[cIndex(x, y, -1, j)];
         }
       }
     }
-    for (let y=0; y<ydim; y++) { // handle bounce-back from barriers
+
+    // Handle bounce-back from barriers
+    for (let y=0; y<ydim; y++) {
       for (let x=0; x<xdim; x++) {
         const i = index(x, y);
         const i9 = i*9;
         if (barriers[i]) {
           for (let j=1;j<9;j++) {
-            streamed[9*index(x+cxs[j], y+cys[j])+j] = collided[i9 + opp[j]]; // move particles
+            streamed[cIndex(x, y, 1, j)] = collided[i9 + opp[j]];
           }
-          // Force on the barrier:
-          // barrierFx += v[E][i] + v[NE][i] + v[SE][i] - v[W][i] - v[NW][i] - v[SW][i];
-          // barrierFy += v[N][i] + v[NE][i] + v[NW][i] - v[S][i] - v[SE][i] - v[SW][i];
         }
       }
     }
@@ -106,10 +106,10 @@ export default class LatticeBoltzmann {
     this.rho[i] = rho;
 
     const i9 = i*9;
-    const u2 =  1.5 * (ux * ux + uy * uy);
+    const u2 =  1 - 1.5 * (ux * ux + uy * uy);
     for (let j = 0; j < 9; j++) {
       const dir = cxs[j]*ux + cys[j]*uy;
-      streamed[i9+j] =  weights[j] * rho * (1 + 3 * dir + 4.5 * dir * dir - u2);
+      streamed[i9+j] =  weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
     }
   }
 }

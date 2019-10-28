@@ -68,7 +68,7 @@ colorList[nColors+1] = [0,0,0];
 
 // Simulate function executes a bunch of steps and then schedules another call to itself
 function simulate(LB: LatticeBoltzmann) {
-    const tlimit = Date.now() + 15;
+    const tlimit = Date.now() + 16;
     setBoundaries(LB);
 
     // Execute a bunch of time steps:
