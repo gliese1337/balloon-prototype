@@ -81,19 +81,14 @@ export default class LatticeBoltzmann {
 
   public stream(barriers: boolean[]) {
     const { xdim, ydim, collided, streamed } = this;
-    const index = (x: number, y: number) => (x%xdim)+(y%ydim)*xdim;
     const max = xdim * ydim;
     const cIndex = (i: number, s: -1|1, j: number) =>
-                      q*((i+s*(cxs[j]+cys[j]*xdim))%max)+j;
+                      q*((i+s*(cxs[j]+cys[j]*xdim)+max)%max)+j;
 
     // Move particles along their directions of motion:
-    for (let y=1; y<ydim-1; y++) {
-      for (let x=1; x<xdim-1; x++) {
-        const i = index(x, y);
-        const iq = i*q;
-        for (let j=0;j<q;j++) {
-          streamed[iq + j] = collided[cIndex(i, -1, j)];
-        }
+    for (let i=0,iq=0; i<max; i++,iq+=q) {
+      for (let j=0;j<q;j++) {
+        streamed[iq + j] = collided[cIndex(i, -1, j)];
       }
     }
 

@@ -19,8 +19,8 @@ const barrier: boolean[] = Array.from({ length: xdim*ydim }, () => false);
 
 // Create a simple linear "wall" barrier (intentionally a little offset from center):
 const barrierSize = ydim/6;
+const x = Math.round(xdim/2);
 for (let y=(ydim/2)-barrierSize-1; y<=(ydim/2)+barrierSize-1; y++) {
-  const x = Math.round(ydim/3);
   barrier[x+y*xdim] = true;
 }
 
@@ -88,7 +88,6 @@ function setBoundaries(LB: LatticeBoltzmann) {
   const u0 = Number(speedSlider.value);
   for (let y=0; y<ydim; y++) {
     LB.setEquilibrium(0, y, u0, 0, 1);
-    LB.setEquilibrium(xdim-1, y, u0, 0, 1);
   }
 }
 
