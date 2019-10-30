@@ -27,44 +27,44 @@ for (let y=(ydim/2)-barrierSize-1; y<=(ydim/2)+barrierSize-1; y++) {
 // Set up the array of colors for plotting (mimicks matplotlib "jet" colormap):
 // (Kludge: Index nColors+1 labels the color used for drawing barriers.)
 const nColors = 400; // there are actually nColors+2 colors
-const colorList: [number, number, number][] = new Array(nColors+2);
+const colorList: Uint8Array[] = new Array(nColors+2);
 for (let c=0; c<=nColors; c++) {
   if (c < nColors/8) {
-    colorList[c] = [
+    colorList[c] = new Uint8Array([
       0,
       0,
       Math.round(255 * (c + nColors/8) / (nColors/4)),
-    ];
+    ]);
   } else if (c < 3*nColors/8) {
-    colorList[c] = [
+    colorList[c] = new Uint8Array([
       0,
       Math.round(255 * (c - nColors/8) / (nColors/4)),
       255,
-    ];
+    ]);
   } else if (c < 5*nColors/8) {
     const r = Math.round(255 * (c - 3*nColors/8) / (nColors/4))
-    colorList[c] = [
+    colorList[c] = new Uint8Array([
       r,
       255,
       255 - r,
-    ];
+    ]);
   } else if (c < 7*nColors/8) {
-    colorList[c] = [
+    colorList[c] = new Uint8Array([
       255,
       Math.round(255 * (7*nColors/8 - c) / (nColors/4)),
       0,
-    ];
+    ]);
   } else {
-    colorList[c] = [
+    colorList[c] = new Uint8Array([
       Math.round(255 * (9*nColors/8 - c) / (nColors/4)),
       0,
       0,
-    ];
+    ]);
   }
 }
 
 // barriers are black
-colorList[nColors+1] = [0,0,0];
+colorList[nColors+1] = new Uint8Array([0,0,0]);
 
 // Simulate function executes a bunch of steps and then schedules another call to itself
 function simulate(LB: LatticeBoltzmann) {
@@ -86,25 +86,24 @@ function simulate(LB: LatticeBoltzmann) {
 // Make fluid flow in from the left edge
 function setBoundaries(LB: LatticeBoltzmann) {
   const u0 = Number(speedSlider.value);
-  for (let y=0; y<ydim; y++) {
+  for (let y=Math.floor(ydim/3); y<Math.ceil(2*ydim/3); y++) {
     LB.setEquilibrium(0, y, u0, 0, 1);
   }
 }
 
 function paintCanvas(LB: LatticeBoltzmann) {
   let cIndex=0;
-  const contrast = Math.pow(1.2,Number(contrastSlider.value));
-  for (let y=0; y<ydim; y++) {
-    for (let x=0; x<xdim; x++) {
-      if (barrier[LB.index(x,y)]) {
-        cIndex = nColors + 1;  // kludge for barrier color which isn't really part of color map
-      } else {
-        cIndex = Math.round(nColors * ((LB.rho(x,y)-1)*6*contrast + 0.5));
-        if (cIndex < 0) cIndex = 0;
-        else if (cIndex > nColors) cIndex = nColors;
-      }
-      image.data.set(colorList[cIndex], 4*(x + y * xdim));
+  const contrast = 6*Math.pow(1.2,Number(contrastSlider.value));
+  const max = xdim*ydim;
+  for (let i=0; i<max; i++) {
+    if (barrier[i]) {
+      cIndex = nColors + 1;
+    } else {
+      cIndex = (nColors * ((LB.rho[i]-1)*contrast + 0.5))|0;
+      if (cIndex < 0) cIndex = 0;
+      else if (cIndex > nColors) cIndex = nColors;
     }
+    image.data.set(colorList[cIndex], 4*i);
   }
 
   context.putImageData(image, 0, 0);
@@ -153,8 +152,6 @@ function mousePressDrag(e: MouseEvent) {
     } else {
       barrier[x+y*xdim] = false;
     }
-  } else {
-    console.log("Density:", LB.rho(x, y));
   }
 }
 
