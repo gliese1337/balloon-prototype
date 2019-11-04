@@ -65,7 +65,8 @@ export default class LatticeBoltzmann {
       const invomega = 1 - omega;
 
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-      for (let j = 0; j < q; j++) {
+      streamed[iq] = omega * weights[0] * newrho * u2 + invomega * streamed[iq];
+      for (let j = 1; j < q; j++) {
         const dir = cxs[j]*ux + cys[j]*uy;
         const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
         collided[iq+j] = omega * eq + invomega * streamed[iq+j];
@@ -81,7 +82,6 @@ export default class LatticeBoltzmann {
 
     // Move particles along their directions of motion:
     for (let i=0,iq=0; i<max; i++,iq+=q) {
-      streamed[iq] = collided[iq];
       if (barriers[i]) {
         // Handle bounce-back from barriers
         for (let j=1;j<q;j++) {
