@@ -26,9 +26,12 @@ export default class LatticeBoltzmann {
     this.rho = new Float32Array(size);
   }
 
-  public collide(viscosity: number) {
+  public step(viscosity: number, barriers: boolean[]) {
     const { xdim, ydim, rho, collided, streamed } = this;
     const max = xdim * ydim;
+
+    /* Collision Loop */
+
     for (let i=0,iq=0; i<max; i++,iq+=q) {
       /* Calculate macroscopic quantities */
 
@@ -72,15 +75,12 @@ export default class LatticeBoltzmann {
         collided[iq+j] = omega * eq + invomega * streamed[iq+j];
       }
     }
-  }
 
-  public stream(barriers: boolean[]) {
-    const { xdim, ydim, collided, streamed } = this;
-    const max = xdim * ydim;
+    /* Streaming Loop */
+
     const destination = (i: number, j: number) =>
                       q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j;
 
-    // Move particles along their directions of motion:
     for (let i=0,iq=0; i<max; i++,iq+=q) {
       if (barriers[i]) {
         // Handle bounce-back from barriers
@@ -88,16 +88,12 @@ export default class LatticeBoltzmann {
           streamed[destination(i, j)] = collided[iq + opp[j]];
         }
       } else {
+        // Move particles along their velocity vector
         for (let j=1;j<q;j++) {
           streamed[destination(i, j)] = collided[iq + j];
         }
       }
     }
-  }
-
-  public step(viscosity: number, barriers: boolean[]) {
-    this.collide(viscosity);
-    this.stream(barriers);
   }
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
