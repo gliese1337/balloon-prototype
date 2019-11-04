@@ -28,29 +28,27 @@ export default class LatticeBoltzmann {
 
   public collide(viscosity: number) {
     const { xdim, ydim, rho, collided, streamed } = this;
-    const tau = 3*viscosity + 0.5; // relation timescale
-    const omega = 1 / tau;
-    const invomega = 1 - omega;
     const max = xdim * ydim;
     for (let i=0,iq=0; i<max; i++,iq+=q) {
-      // macroscopic density
-      let newrho = 0;
-      for (let j=0;j<q;j++){
-        newrho += streamed[iq+j];
-      }
-      // hack for stability
-      if (newrho <= 0) newrho = 0.01;
-      rho[i] = newrho;
-      
-      // macroscopic velocity components
-      let ux = 0, uy = 0;
+      /* Calculate macroscopic quantities */
+
+      let newrho = streamed[iq]; // macroscopic density
+      let ux = 0, uy = 0;        // macroscopic velocity components
       for (let j = 1; j < q; j++) {
         const v = streamed[iq+j];
+        newrho += v;
         ux += cxs[j]*v;
         uy += cys[j]*v;
       }
+
+      // hack for stability
+      if (newrho <= 0) newrho = 0.01;
+
+      rho[i] = newrho;
       ux/=newrho;
       uy/=newrho;
+
+      /* Calculate collisions */
 
       /*
       f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
@@ -61,6 +59,10 @@ export default class LatticeBoltzmann {
             1/(2 c_s^4) = 4.5
             1/(2 c_s^2) = 1.5
       */
+
+      const tau = 3*viscosity + 0.5; // relaxation timescale
+      const omega = 1 / tau;
+      const invomega = 1 - omega;
 
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
       for (let j = 0; j < q; j++) {
@@ -74,21 +76,20 @@ export default class LatticeBoltzmann {
   public stream(barriers: boolean[]) {
     const { xdim, ydim, collided, streamed } = this;
     const max = xdim * ydim;
-    const cIndex = (i: number, s: -1|1, j: number) =>
-                      q*((i+s*(cxs[j]+cys[j]*xdim)+max)%max)+j;
+    const destination = (i: number, j: number) =>
+                      q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j;
 
     // Move particles along their directions of motion:
     for (let i=0,iq=0; i<max; i++,iq+=q) {
-      for (let j=0;j<q;j++) {
-        streamed[iq + j] = collided[cIndex(i, -1, j)];
-      }
-    }
-
-    // Handle bounce-back from barriers
-    for (let i=0,iq=0; i<max; i++,iq+=q) {
+      streamed[iq] = collided[iq];
       if (barriers[i]) {
+        // Handle bounce-back from barriers
         for (let j=1;j<q;j++) {
-          streamed[cIndex(i, 1, j)] = collided[iq + opp[j]];
+          streamed[destination(i, j)] = collided[iq + opp[j]];
+        }
+      } else {
+        for (let j=1;j<q;j++) {
+          streamed[destination(i, j)] = collided[iq + j];
         }
       }
     }
@@ -109,7 +110,7 @@ export default class LatticeBoltzmann {
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);
     for (let j = 0; j < q; j++) {
       const dir = cxs[j]*ux + cys[j]*uy;
-      streamed[iq+j] =  weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
+      streamed[iq+j] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
     }
   }
 }
