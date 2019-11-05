@@ -51,7 +51,25 @@ function destination(d: number, q: number, dims: number[], size: number, vectors
   ).bind(null, vectors);
 }
 
-function collide(d: number) {
+function expandVectorLoop(d: number, q: number, vectors: number[][], weights: number[]) {
+  const body = [];
+  for (let j = 1; j < q; j++) {
+    const v = vectors[j];
+    const terms = [];
+    for (let k=0;k<d;k++) {
+      if (v[k] === 0) continue;
+      terms.push(`${v[k] < 0 ? '-' : '+'}u${k}`);
+    }
+    
+    const direxp = terms.join('');
+
+    body.push(`dir = ${ direxp[0] === '+' ? direxp.substr(1) : direxp }; collided[iq+${j}] = omega * (${weights[j]} * newrho * (usqr + 3 * dir + 4.5 * dir * dir)) + invomega * streamed[iq+${j}]`);
+  }
+
+  return body.join('\n');
+}
+
+function collide(d: number, q: number, vectors: number[][], weights: number[]) {
   const body = `
     let newrho = streamed[iq];
     let ${ Array.from({ length: d }, (_, i) => `u${i} = 0`).join(', ') };
@@ -73,12 +91,8 @@ function collide(d: number) {
 
     const usqr =  1 - 1.5 * (${ Array.from({ length: d }, (_, i) => `u${i}*u${i}`).join('+') });
     streamed[iq] = omega * weights[0] * newrho * usqr + invomega * streamed[iq];
-    for (let j = 1; j < q; j++) {
-      const v = vectors[j];
-      const dir = ${ Array.from({ length: d }, (_, i) => `u${i}*v[${i}]`).join('+') };
-      const eq = weights[j] * newrho * (usqr + 3 * dir + 4.5 * dir * dir);
-      collided[iq+j] = omega * eq + invomega * streamed[iq+j];
-    }`;
+    let dir;
+    ${ expandVectorLoop(d, q, vectors, weights) }`;
 
   return new Function(
     'i', 'iq', 'viscosity', 'q', 'vectors', 'weights', 'rho', 'streamed', 'collided',
@@ -111,7 +125,7 @@ export default class LatticeBoltzmann {
     this.collided = createVectors(size, weights, q);
     this.rho = new Float32Array(size);
     this.opp = lattice.opposites;
-    this._collide = collide(d);
+    this._collide = collide(d,q, vectors, weights);
     this._destination = destination(d, q, dims, size, vectors);
   }
 
