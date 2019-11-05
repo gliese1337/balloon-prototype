@@ -14,63 +14,11 @@ function createVectors(size: number, weights: number[], q: number) {
   return buffer;
 }
 
-function collide(
-  i: number, iq: number, viscosity: number,
-  d: number, q: number,
-  vectors: number[][], weights: number[],
-  rho: Float32Array, streamed: Float32Array, collided: Float32Array
-) {
-  /* Calculate macroscopic quantities */
-
-  let newrho = streamed[iq];       // macroscopic density
-  const u = new Array(d).fill(0);  // macroscopic velocity components
-  for (let j = 1; j < q; j++) {
-    const uk = streamed[iq+j];
-    newrho += uk;
-    const v = vectors[j];
-    for (let k=0; k<d; k++) {
-      u[k] += v[k]*uk;
-    }
-  }
-
-  // hack for stability
-  if (newrho <= 0) newrho = 0.01;
-
-  rho[i] = newrho;
-  for (let k=0; k<d; k++) {
-    u[k] /= newrho;
-  }
-
-  /* Calculate collisions */
-
-  /*
-  f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
-  f`_j = omega f_j^eq + (1 - omega) f_j 
-
-  c_s, the lattice speed of sound, is 1/sqrt(3)
-  Thus, 1/c_s^2 = 3
-        1/(2 c_s^4) = 4.5
-        1/(2 c_s^2) = 1.5
-  */
-
-  const tau = 3*viscosity + 0.5; // relaxation timescale
-  const omega = 1 / tau;
-  const invomega = 1 - omega;
-
-  const u2 =  1 - 1.5 * u.reduce((a, n) => a + n*n, 0);
-  streamed[iq] = omega * weights[0] * newrho * u2 + invomega * streamed[iq];
-  for (let j = 1; j < q; j++) {
-    const dir = vectors[j].reduce((a, c, i) => a + c*u[i], 0);
-    const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-    collided[iq+j] = omega * eq + invomega * streamed[iq+j];
-  }
-}
-
 function stream(
   i: number, iq: number,
   barriers: boolean[],
   q: number, opp: number[],
-  destination: (i: number, j: number) => number,
+  destination: Function,
   collided: Float32Array, streamed: Float32Array,
 ) {
   if (barriers[i]) {
@@ -86,10 +34,62 @@ function stream(
   }
 }
 
-export default class LatticeBoltzmann {        
+function dot(v: number[] | Float32Array, k: number[] | Float32Array, l: number) {
+  let d = v[0]*k[0];
+  for (let i=1;i<l;i++) d += v[i]*k[i];
+  return d;
+}
+
+function destination(d: number, q: number, dims: number[], size: number, vectors: number[][]){
+  let term = `v[${d-1}]*${dims[d-2]}`;
+  for (let i=d-2;i>0;i--) {
+    term = `(v[${i}]+${term})*${dims[i-1]}`
+  }
+  return new Function(
+    'vectors', 'i', 'j',
+    `const v = vectors[j]; return ${q}*((i+(v[0] + ${term})+${size})%${size})+j;`,
+  ).bind(null, vectors);
+}
+
+function collide(d: number) {
+  const body = `
+    let newrho = streamed[iq];
+    let ${ Array.from({ length: d }, (_, i) => `u${i} = 0`).join(', ') };
+    for (let j = 1; j < q; j++) {
+      const population = streamed[iq+j];
+      newrho += population;
+      const v = vectors[j];
+      ${ Array.from({ length: d }, (_, i) => `u${i} += v[${i}]*population;`).join(' ') }
+    }
+
+    if (newrho <= 0) newrho = 0.01;
+
+    rho[i] = newrho;
+    ${ Array.from({ length: d }, (_, i) => `u${i} /= newrho;`).join(' ') }
+
+    const tau = 3*viscosity + 0.5; // relaxation timescale
+    const omega = 1 / tau;
+    const invomega = 1 - omega;
+
+    const usqr =  1 - 1.5 * (${ Array.from({ length: d }, (_, i) => `u${i}*u${i}`).join('+') });
+    streamed[iq] = omega * weights[0] * newrho * usqr + invomega * streamed[iq];
+    for (let j = 1; j < q; j++) {
+      const v = vectors[j];
+      const dir = ${ Array.from({ length: d }, (_, i) => `u${i}*v[${i}]`).join('+') };
+      const eq = weights[j] * newrho * (usqr + 3 * dir + 4.5 * dir * dir);
+      collided[iq+j] = omega * eq + invomega * streamed[iq+j];
+    }`;
+
+  return new Function(
+    'i', 'iq', 'viscosity', 'q', 'vectors', 'weights', 'rho', 'streamed', 'collided',
+    body
+  );
+}
+
+export default class LatticeBoltzmann {
+  public rho: Float32Array;       // macroscopic density; cached for rendering
   private streamed: Float32Array; // microscopic densities along each lattice direction
   private collided: Float32Array;
-  public rho: Float32Array;       // macroscopic density; cached for rendering
   private size: number;           // total number of lattice points
   private dims: number[];
   private vectors: number[][];
@@ -97,39 +97,33 @@ export default class LatticeBoltzmann {
   private opp: number[];
   private d: number;
   private q: number;
+  private _collide: Function;
+  private _destination: Function;
 
   constructor(lattice: Lattice) {
     const dims = this.dims = lattice.dims;
+    const d = this.d = dims.length;
     const weights = this.weights = lattice.weights;
     const q = this.q = weights.length;
     const size = this.size = dims.reduce((a, n) => a * n, 1);
+    const vectors = this.vectors = lattice.vectors;
     this.streamed = createVectors(size, weights, q);
     this.collided = createVectors(size, weights, q);
     this.rho = new Float32Array(size);
-    this.vectors = lattice.vectors;
     this.opp = lattice.opposites;
-    this.d = dims.length;
+    this._collide = collide(d);
+    this._destination = destination(d, q, dims, size, vectors);
   }
 
-
   public step(viscosity: number, barriers: boolean[]) {
-    const { dims, size, vectors, weights, opp, d, q, rho, collided, streamed } = this;
+    const { size, _collide, _destination, vectors, weights, opp, q, rho, collided, streamed } = this;
 
     for (let i=0,iq=0; i<size; i++,iq+=q) {
-      collide(i, iq, viscosity, d, q, vectors, weights, rho, streamed, collided);
+      _collide(i, iq, viscosity, q, vectors, weights, rho, streamed, collided);
     }
-
-    const destination = (i: number, j: number) => {
-      const v = vectors[j];
-      let c = v[d-1];
-      for (let k=d-2; k>=0; k--){
-        c = c*dims[k] + v[k];
-      }
-      return q*((i + c + size) % size) + j;
-    }
-  
+    
     for (let i=0,iq=0; i<size; i++,iq+=q) {
-      stream(i, iq, barriers, q, opp, destination, collided, streamed);
+      stream(i, iq, barriers, q, opp, _destination, collided, streamed);
     }
   }
 
@@ -145,10 +139,10 @@ export default class LatticeBoltzmann {
     this.rho[i] = rho;
 
     const iq = i*q;
-    const u2 =  1 - 1.5 * u.reduce((a, n) => a + n*n, 0);
+    const usqr =  1 - 1.5 * dot(u, u, d);
     for (let j = 0; j < q; j++) {
-      const dir = vectors[j].reduce((a, c, i) => a + c*u[i], 0);
-      streamed[iq+j] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
+      const dir = dot(vectors[j], u, d);
+      streamed[iq+j] = weights[j] * rho * (usqr + 3 * dir + 4.5 * dir * dir);
     }
   }
 }
