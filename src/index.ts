@@ -1,4 +1,5 @@
 import LatticeBoltzmann from './simulation'
+import lattice from './lattice';
 
 // Global variables:
 const canvas = document.getElementById('theCanvas') as HTMLCanvasElement;
@@ -13,6 +14,7 @@ const contrastSlider = document.getElementById('contrastSlider') as HTMLSelectEl
 
 const xdim = canvas.width;
 const ydim = canvas.height;
+lattice.dims = [xdim, ydim];
 
 // boolean array of barrier locations
 const barrier: boolean[] = Array.from({ length: xdim*ydim }, () => false);
@@ -87,7 +89,7 @@ function simulate(LB: LatticeBoltzmann) {
 function setBoundaries(LB: LatticeBoltzmann) {
   const u0 = Number(speedSlider.value);
   for (let y=Math.floor(ydim/3); y<Math.ceil(2*ydim/3); y++) {
-    LB.setEquilibrium(0, y, u0, 0, 1);
+    LB.setEquilibrium([0, y], [u0, 0], 1);
   }
 }
 
@@ -117,7 +119,7 @@ function paintCanvas(LB: LatticeBoltzmann) {
   }
 });
 
-const LB = new LatticeBoltzmann(xdim, ydim);
+const LB = new LatticeBoltzmann(lattice);
 /*const u0 = Number(speedSlider.value);
 for (let y=0; y<ydim; y++) {
   for (let x = 0; x<xdim; x++) {
