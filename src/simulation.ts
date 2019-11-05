@@ -14,41 +14,54 @@ function createVectors(size: number, weights: number[], q: number) {
   return buffer;
 }
 
-function stream(
-  i: number, iq: number,
-  barriers: boolean[],
-  q: number, opp: number[],
-  destination: Function,
-  collided: Float32Array, streamed: Float32Array,
-) {
-  if (barriers[i]) {
-    // Handle bounce-back from barriers
-    for (let j=1;j<q;j++) {
-      streamed[destination(i, j)] = collided[iq + opp[j]];
-    }
-  } else {
-    // Move particles along their velocity vector
-    for (let j=1;j<q;j++) {
-      streamed[destination(i, j)] = collided[iq + j];
-    }
-  }
-}
-
 function dot(v: number[] | Float32Array, k: number[] | Float32Array, l: number) {
   let d = v[0]*k[0];
   for (let i=1;i<l;i++) d += v[i]*k[i];
   return d;
 }
 
-function destination(d: number, q: number, dims: number[], size: number, vectors: number[][]){
-  let term = `v[${d-1}]*${dims[d-2]}`;
-  for (let i=d-2;i>0;i--) {
-    term = `(v[${i}]+${term})*${dims[i-1]}`
+function expandStreamLoop(d: number, q: number, size: number, dims: number[], vectors: number[][], transform: (x: number) => number) {
+  const body = [];
+  for (let j=1;j<q;j++) {
+    const v = vectors[j];
+    let offset = v[d-1]*dims[d-2];
+    for (let i=d-2;i>0;i--) {
+      offset = (v[i]+offset)*dims[i-1];
+    }
+    offset += v[0];
+    if (offset < 0) offset += size;
+    const src = transform(j);
+    body.push(`streamed[${q}*((i+${offset})%${size})+${j}] = collided[iq${ src < 0 ? ''+src : '+'+src }];`);
   }
-  return new Function(
-    'vectors', 'i', 'j',
-    `const v = vectors[j]; return ${q}*((i+(v[0] + ${term})+${size})%${size})+j;`,
-  ).bind(null, vectors);
+  return body.join('\n');
+}
+
+function stream(
+  d: number, q: number,
+  dims: number[], size: number,
+  vectors: number[][], opp: number[],
+) {
+  const body = `
+  if (barriers[i]) {
+    ${ expandStreamLoop(d, q, size, dims, vectors, x => opp[x]) }
+  } else {
+    ${ expandStreamLoop(d, q, size, dims, vectors, x => x) }
+  }`;
+
+  return new Function('i', 'iq', 'barriers', 'collided', 'streamed', body);
+}
+
+function expandPopLoop(d: number, q: number, vectors: number[][]) {
+  const body = [];
+  for (let j = 1; j < q; j++) {
+    const v = vectors[j];
+    body.push(`population = streamed[iq+${j}];newrho += population;`);
+    for (let k=0;k<d;k++){
+      if (v[k] === 0) continue
+      body.push(`u${k} ${v[k] < 0 ? '-' : '+'}= population;`);
+    }
+  }
+  return body.join('\n');
 }
 
 function expandVectorLoop(d: number, q: number, vectors: number[][], weights: number[]) {
@@ -73,12 +86,8 @@ function collide(d: number, q: number, vectors: number[][], weights: number[]) {
   const body = `
     let newrho = streamed[iq];
     let ${ Array.from({ length: d }, (_, i) => `u${i} = 0`).join(', ') };
-    for (let j = 1; j < q; j++) {
-      const population = streamed[iq+j];
-      newrho += population;
-      const v = vectors[j];
-      ${ Array.from({ length: d }, (_, i) => `u${i} += v[${i}]*population;`).join(' ') }
-    }
+    let population;
+    ${ expandPopLoop(d, q, vectors) }
 
     if (newrho <= 0) newrho = 0.01;
 
@@ -90,12 +99,12 @@ function collide(d: number, q: number, vectors: number[][], weights: number[]) {
     const invomega = 1 - omega;
 
     const usqr =  1 - 1.5 * (${ Array.from({ length: d }, (_, i) => `u${i}*u${i}`).join('+') });
-    streamed[iq] = omega * weights[0] * newrho * usqr + invomega * streamed[iq];
+    streamed[iq] = omega * ${weights[0]} * newrho * usqr + invomega * streamed[iq];
     let dir;
     ${ expandVectorLoop(d, q, vectors, weights) }`;
-
+  
   return new Function(
-    'i', 'iq', 'viscosity', 'q', 'vectors', 'weights', 'rho', 'streamed', 'collided',
+    'i', 'iq', 'viscosity', 'rho', 'streamed', 'collided',
     body
   );
 }
@@ -108,11 +117,10 @@ export default class LatticeBoltzmann {
   private dims: number[];
   private vectors: number[][];
   private weights: number[];
-  private opp: number[];
   private d: number;
   private q: number;
   private _collide: Function;
-  private _destination: Function;
+  private _stream: Function;
 
   constructor(lattice: Lattice) {
     const dims = this.dims = lattice.dims;
@@ -124,20 +132,19 @@ export default class LatticeBoltzmann {
     this.streamed = createVectors(size, weights, q);
     this.collided = createVectors(size, weights, q);
     this.rho = new Float32Array(size);
-    this.opp = lattice.opposites;
-    this._collide = collide(d,q, vectors, weights);
-    this._destination = destination(d, q, dims, size, vectors);
+    this._collide = collide(d, q, vectors, weights);
+    this._stream = stream(d, q, dims, size, vectors, lattice.opposites);
   }
 
   public step(viscosity: number, barriers: boolean[]) {
-    const { size, _collide, _destination, vectors, weights, opp, q, rho, collided, streamed } = this;
+    const { size, q, _collide, _stream, rho, collided, streamed } = this;
 
     for (let i=0,iq=0; i<size; i++,iq+=q) {
-      _collide(i, iq, viscosity, q, vectors, weights, rho, streamed, collided);
+      _collide(i, iq, viscosity, rho, streamed, collided);
     }
     
     for (let i=0,iq=0; i<size; i++,iq+=q) {
-      stream(i, iq, barriers, q, opp, _destination, collided, streamed);
+      _stream(i, iq, barriers, collided, streamed);
     }
   }
 
