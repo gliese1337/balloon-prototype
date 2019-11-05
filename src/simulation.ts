@@ -14,6 +14,64 @@ function createVectors(size: number) {
   return buffer;
 }
 
+function collide(i: number, iq: number, viscosity: number, rho: Float32Array, streamed: Float32Array, collided: Float32Array) {
+  /* Calculate macroscopic quantities */
+
+  let newrho = streamed[iq]; // macroscopic density
+  let ux = 0, uy = 0;        // macroscopic velocity components
+  for (let j = 1; j < q; j++) {
+    const v = streamed[iq+j];
+    newrho += v;
+    ux += cxs[j]*v;
+    uy += cys[j]*v;
+  }
+
+  // hack for stability
+  if (newrho <= 0) newrho = 0.01;
+
+  rho[i] = newrho;
+  ux/=newrho;
+  uy/=newrho;
+
+  /* Calculate collisions */
+
+  /*
+  f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
+  f`_j = omega f_j^eq + (1 - omega) f_j 
+
+  c_s, the lattice speed of sound, is 1/sqrt(3)
+  Thus, 1/c_s^2 = 3
+        1/(2 c_s^4) = 4.5
+        1/(2 c_s^2) = 1.5
+  */
+
+  const tau = 3*viscosity + 0.5; // relaxation timescale
+  const omega = 1 / tau;
+  const invomega = 1 - omega;
+
+  const u2 =  1 - 1.5 * (ux * ux + uy * uy);
+  streamed[iq] = omega * weights[0] * newrho * u2 + invomega * streamed[iq];
+  for (let j = 1; j < q; j++) {
+    const dir = cxs[j]*ux + cys[j]*uy;
+    const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
+    collided[iq+j] = omega * eq + invomega * streamed[iq+j];
+  }
+}
+
+function stream(i: number, iq: number, barriers: boolean[], destination: (i: number, j: number) => number, collided: Float32Array, streamed: Float32Array) {
+  if (barriers[i]) {
+    // Handle bounce-back from barriers
+    for (let j=1;j<q;j++) {
+      streamed[destination(i, j)] = collided[iq + opp[j]];
+    }
+  } else {
+    // Move particles along their velocity vector
+    for (let j=1;j<q;j++) {
+      streamed[destination(i, j)] = collided[iq + j];
+    }
+  }
+}
+
 export default class LatticeBoltzmann {        
   private streamed: Float32Array; // microscopic densities along each lattice direction
   private collided: Float32Array;
@@ -30,69 +88,15 @@ export default class LatticeBoltzmann {
     const { xdim, ydim, rho, collided, streamed } = this;
     const max = xdim * ydim;
 
-    /* Collision Loop */
-
     for (let i=0,iq=0; i<max; i++,iq+=q) {
-      /* Calculate macroscopic quantities */
-
-      let newrho = streamed[iq]; // macroscopic density
-      let ux = 0, uy = 0;        // macroscopic velocity components
-      for (let j = 1; j < q; j++) {
-        const v = streamed[iq+j];
-        newrho += v;
-        ux += cxs[j]*v;
-        uy += cys[j]*v;
-      }
-
-      // hack for stability
-      if (newrho <= 0) newrho = 0.01;
-
-      rho[i] = newrho;
-      ux/=newrho;
-      uy/=newrho;
-
-      /* Calculate collisions */
-
-      /*
-      f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
-      f`_j = omega f_j^eq + (1 - omega) f_j 
-
-      c_s, the lattice speed of sound, is 1/sqrt(3)
-      Thus, 1/c_s^2 = 3
-            1/(2 c_s^4) = 4.5
-            1/(2 c_s^2) = 1.5
-      */
-
-      const tau = 3*viscosity + 0.5; // relaxation timescale
-      const omega = 1 / tau;
-      const invomega = 1 - omega;
-
-      const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-      streamed[iq] = omega * weights[0] * newrho * u2 + invomega * streamed[iq];
-      for (let j = 1; j < q; j++) {
-        const dir = cxs[j]*ux + cys[j]*uy;
-        const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-        collided[iq+j] = omega * eq + invomega * streamed[iq+j];
-      }
+      collide(i, iq, viscosity, rho, streamed, collided);
     }
-
-    /* Streaming Loop */
 
     const destination = (i: number, j: number) =>
                       q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j;
 
     for (let i=0,iq=0; i<max; i++,iq+=q) {
-      if (barriers[i]) {
-        // Handle bounce-back from barriers
-        for (let j=1;j<q;j++) {
-          streamed[destination(i, j)] = collided[iq + opp[j]];
-        }
-      } else {
-        // Move particles along their velocity vector
-        for (let j=1;j<q;j++) {
-          streamed[destination(i, j)] = collided[iq + j];
-        }
-      }
+      stream(i, iq, barriers, destination, collided, streamed);
     }
   }
 
