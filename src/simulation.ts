@@ -84,12 +84,12 @@ function stream(xdim: number, ydim: number, max: number, viscosity: number, barr
     if (barriers[i]) {
       // Handle bounce-back from barriers
       for (let j=1;j<q;j++) {
-        streamed[q*((i+(cxs[j]+(cys[j]+czs[j]*ydim)*xdim)+max)%max)+j] = collided[iq + opp[j]];
+        streamed[iq + j] = collided[q*((i-(cxs[j]-(cys[j]-czs[j]*ydim)*xdim)+max)%max) + opp[j]];
       }
     } else {
       // Move particles along their velocity vector
       for (let j=1;j<q;j++) {
-        streamed[q*((i+(cxs[j]+(cys[j]+czs[j]*ydim)*xdim)+max)%max)+j] = collided[iq + j];
+        streamed[iq + j] = collided[q*((i-(cxs[j]-(cys[j]-czs[j]*ydim)*xdim)+max)%max) + j];
       }
     }
   }
