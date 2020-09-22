@@ -69,21 +69,26 @@ for (let c=0; c<=nColors; c++) {
 // barriers are black
 colorList[nColors+1] = new Uint8Array([0,0,0]);
 
+let last = 0;
 // Simulate function executes a bunch of steps and then schedules another call to itself
 function simulate(LB: LatticeBoltzmann) {
-  const tlimit = Date.now() + 16;
+  //const tlimit = Date.now() + 16;
   setBoundaries(LB);
 
   // Execute a bunch of time steps:
-  let c = 0;
-  do {
+  //let c = 0;
+  //do {
     LB.step(+viscSlider.value, barrier);
-    c++;
-  } while(Date.now() < tlimit);
-  console.log("Iterations per frame:", c);
+  //  c++;
+  //} while(Date.now() < tlimit);
+  //console.log("Iterations per frame:", c);
   paintCanvas(LB);
 
-  requestAnimationFrame(() => simulate(LB));
+  requestAnimationFrame((t) => {
+      console.log(1000 / (t-last));
+      last = t;
+      simulate(LB);
+  });
 }
 
 // Make fluid flow in from the left edge
