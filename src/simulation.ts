@@ -14,46 +14,38 @@ function createVectors(size: number) {
   return buffer;
 }
 
-function update_rho(max: number, rho: Float32Array, streamed: Float32Array) {
-  for (let i=0,iq=0; i<max; i++,iq+=q) {
+function update_macros(max: number, macros: Float32Array, streamed: Float32Array) {
+  for (let i=0,im=0,iq=0; i<max; i++,im+=4,iq+=q) {
     let newrho = streamed[iq];  // macroscopic density
-    for (let j = 1; j < q; j++) {
-      const v = streamed[iq+j];
-      newrho += v;
-    }
-
-    // hack for stability
-    rho[i] = newrho <= 0 ? 0.01 : newrho;
-  }
-}
-
-function update_velocities(max: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array) {
-  for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=3) {
     let ux = 0, uy = 0, uz = 0; // macroscopic velocity components
     for (let j = 1; j < q; j++) {
       const v = streamed[iq+j];
+      newrho += v;
       ux += cxs[j]*v;
       uy += cys[j]*v;
       uz += czs[j]*v;
     }
 
-    const newrho = rho[i];
-    velocities[iv+0] = ux / newrho;
-    velocities[iv+1] = uy / newrho;
-    velocities[iv+2] = uz / newrho;
+    // hack for stability
+    newrho = newrho <= 0 ? 0.01 : newrho;
+
+    macros[im] = newrho;
+    macros[im+1] = ux / newrho;
+    macros[im+2] = uy / newrho;
+    macros[im+3] = uz / newrho;
   }
 }
 
-function collide(max: number, viscosity: number, rho: Float32Array, velocities: Float32Array, collided: Float32Array, streamed: Float32Array) {
+function collide(max: number, viscosity: number, macros: Float32Array, collided: Float32Array, streamed: Float32Array) {
   const tau = 3*viscosity + 0.5; // relaxation timescale
   const omega = 1 / tau;
   const invomega = 1 - omega;
 
-  for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=3) {
-    const ux = velocities[iv];
-    const uy = velocities[iv+1];
-    const uz = velocities[iv+2];
-    const newrho = rho[i];
+  for (let i=0,im=0,iq=0; i<max; i++,im+=4,iq+=q) {
+    const newrho = macros[im];
+    const ux = macros[im+1];
+    const uy = macros[im+2];
+    const uz = macros[im+3];
 
     /* Calculate collisions */
 
@@ -76,18 +68,18 @@ function collide(max: number, viscosity: number, rho: Float32Array, velocities: 
   }
 }
 
-function stream(xdim: number, ydim: number, max: number, viscosity: number, rho: Float32Array, barriers: boolean[], velocities: Float32Array, collided: Float32Array, streamed: Float32Array) {
+function stream(xdim: number, ydim: number, max: number, viscosity: number, barriers: boolean[], macros: Float32Array, collided: Float32Array, streamed: Float32Array) {
   const tau = 3*viscosity + 0.5; // relaxation timescale
   const omega = 1 / tau;
   const invomega = 1 - omega;
 
-  for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=3) {
-    const ux = velocities[iv];
-    const uy = velocities[iv+1];
-    const uz = velocities[iv+2];
+  for (let i=0,im=0,iq=0; i<max; i++,im+=4,iq+=q) {
+    const ux = macros[im+1];
+    const uy = macros[im+2];
+    const uz = macros[im+3];
 
     const u2 =  1 - 1.5 * (ux * ux + uy * uy + uz * uz);
-    streamed[iq] = omega * weights[0] * rho[i] * u2 + invomega * streamed[iq];
+    streamed[iq] = omega * weights[0] * macros[im] * u2 + invomega * streamed[iq];
     
     if (barriers[i]) {
       // Handle bounce-back from barriers
@@ -106,31 +98,28 @@ function stream(xdim: number, ydim: number, max: number, viscosity: number, rho:
 export default class LatticeBoltzmann {        
   private streamed: Float32Array; // microscopic densities along each lattice direction
   private collided: Float32Array;
-  public rho: Float32Array;        // macroscopic density; cached for rendering
-  public velocities: Float32Array; // macroscopic velocity
+  public macros: Float32Array;        // velocity and density
 
   constructor(public xdim: number, public ydim: number, public zdim: number) {
     const size = xdim * ydim * zdim;
     this.streamed = createVectors(size);
     this.collided = createVectors(size);
-    this.rho = new Float32Array(size);
-    this.velocities = new Float32Array(size*3);
+    this.macros = new Float32Array(size*4);
   }
 
   public step(viscosity: number, barriers: boolean[]) {
-    const { xdim, ydim, zdim, rho, velocities, collided, streamed } = this;
+    const { xdim, ydim, zdim, macros, collided, streamed } = this;
     const max = xdim * ydim * zdim;
-    update_rho(max, rho, streamed);
-    update_velocities(max, rho, velocities, streamed);
-    collide(max, viscosity, rho, velocities, collided, streamed);
-    stream(xdim, ydim, max, viscosity, rho, barriers, velocities, collided, streamed);
+    update_macros(max, macros, streamed);
+    collide(max, viscosity, macros, collided, streamed);
+    stream(xdim, ydim, max, viscosity, barriers, macros, collided, streamed);
   }
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
   public setEquilibrium(x: number, y: number, z: number, ux: number, uy: number, uz: number, rho: number) {
     const { xdim, ydim, streamed } = this;
     const i = x+(y+z*ydim)*xdim;
-    this.rho[i] = rho;
+    this.macros[i<<2] = rho;
 
     const iq = i*q;
     const u2 =  1 - 1.5 * (ux * ux + uy * uy + uz * uz);
