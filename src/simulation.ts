@@ -6,7 +6,7 @@ const c: [number, number][] = [
   [ 1,  1 ], [ -1, -1 ],
   [ 1, -1 ], [ -1,  1 ],
 ]
-const opp =     [  0,   2,   1,   4,   3,    6,    5,    8,    7];
+const opp = [ 0, 2, 1, 4, 3, 6, 5, 8, 7];
 
 const q = 9;
 
@@ -50,40 +50,34 @@ function update_velocities(max: number, rho: Float32Array, streamed: Float32Arra
 function collide(max: number, omega: number, invomega: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array, collided: Float32Array) {
   for (let j = 1; j < q; j++) {
     const [cx, cy] = c[j];
+    const omega_w = omega * weights[j];
     for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
       const ux = velocities[iv];
       const uy = velocities[iv+1];
-      const newrho = rho[i];
-
-      /* Calculate collisions */
-
-      /*
-      f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
-      f`_j = omega f_j^eq + (1 - omega) f_j 
-      c_s, the lattice speed of sound, is 1/sqrt(3)
-      Thus, 1/c_s^2 = 3
-            1/(2 c_s^4) = 4.5
-            1/(2 c_s^2) = 1.5
-      */
 
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
       const dir = cx*ux + cy*uy;
-      const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
-      collided[iq+j] = omega * eq + invomega * streamed[iq+j];
+      collided[iq+j] = omega_w * rho[i] * (u2 + 3 * dir + 4.5 * dir * dir) +
+                       invomega * streamed[iq+j];
     }
   }
 }
 
-function stream(xdim: number, max: number, omega: number, invomega: number, rho: Float32Array, barriers: boolean[], velocities: Float32Array, collided: Float32Array, streamed: Float32Array) {
+function stationary(max: number, omega: number, invomega: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array) {
   for (let j=1;j<q;j++) {
-    const [cx, cy] = c[j];
     for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
       const ux = velocities[iv];
       const uy = velocities[iv+1];
-
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
       streamed[iq] = omega * weights[0] * rho[i] * u2 + invomega * streamed[iq];
-    
+    }
+  }
+}
+
+function stream(xdim: number, max: number, barriers: boolean[], collided: Float32Array, streamed: Float32Array) {
+  for (let j=1;j<q;j++) {
+    const [cx, cy] = c[j];
+    for (let i=0,iq=0; i<max; i++,iq+=q) {    
       if (barriers[i]) {
         streamed[iq + j] = collided[q*((i-(cx-cy*xdim)+max)%max) + opp[j]];
       } else {
@@ -118,7 +112,8 @@ export default class LatticeBoltzmann {
     update_rho(max, streamed, rho);
     update_velocities(max, rho, streamed, velocities);
     collide(max, omega, invomega, rho, velocities, streamed, collided);
-    stream(xdim, max, omega, invomega, rho, barriers, velocities, collided, streamed);
+    stationary(max, omega, invomega, rho, velocities, streamed);
+    stream(xdim, max, barriers, collided, streamed);
   }
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
