@@ -6,7 +6,7 @@ uniform sampler2D barriers;
 
 void main () {
   bool blocked = texture2D(barriers, gl_FragCoord).r > 0;
-  float i = gl_FragCoord.x + gl_FragCoord.y * screen.x;
+  float i = gl_FragCoord.x + gl_FragCoord.y * screenx;
   float idx = mod(i - offset + max_idx, max_idx);
   vec2 coord = vec2(mod(idx, screenx), floor(idx / screenx));
   gl_FragColor = texture2D(blocked ? collided[1] : collided[0], coord);

@@ -1,0 +1,98 @@
+const w0 = 1/3;
+const weights = [1/18, 1/18, 1/18, 1/18, 1/18, 1/18, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36, 1/36];
+const c: [number, number, number][] = [
+  [ 1, 0, 0], [-1, 0, 0],
+  [ 0, 1, 0], [0, -1, 0],
+  [ 0, 0, 1], [ 0, 0, -1],
+  [ 1, 1, 0], [-1,-1, 0], [-1, 1, 0], [ 1,-1, 0],
+  [ 1, 0, 1], [-1, 0,-1], [ 1, 0,-1], [-1, 0, 1],
+  [ 0, 1, 1], [ 0,-1,-1], [ 0,-1, 1], [ 0, 1,-1],
+];
+const opp = [1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14, 17, 16];
+const q = 18;
+
+function update_macros(macros: Float32Array, stationary: Float32Array, streamed: Float32Array) {
+  // run macros.glsl
+  // stationary is plane 0
+  // streamed must be split into planes 1-18
+}
+
+function collide(
+  omega: number, invomega: number,
+  macros: Float32Array, collided: Float32Array, streamed: Float32Array,
+) {
+  for (let j=0; j < q; j++) {
+    //c[j];
+    const omega_w = omega * weights[j];
+    // run collide.glsl on the current plane
+  }
+}
+
+function update_static(omega_w: number, invomega: number, macros: Float32Array, stationary: Float32Array) {
+  // run stationary.glsl
+}
+
+function stream(
+  xdim: number, ydim: number,
+  barriers: boolean[], streamed: Float32Array, collided: Float32Array,
+) {
+  for (let j=0,i=0; j < q; j++) {
+    // run stream.glsl for the current plane
+    // collided[0] is the standard source plane of collided
+    // collided[1] is the reflection source plane of collided
+  }
+}
+
+export default class LatticeBoltzmann { 
+  private stationary: Float32Array;       
+  private streamed: Float32Array; // microscopic densities along each lattice direction
+  private collided: Float32Array;
+  public macros: Float32Array;      // velocity and density
+
+  constructor(public xdim: number, public ydim: number, public zdim: number) {
+    const size = xdim * ydim * zdim;
+
+    const salloc = new ArrayBuffer(size * q << 2);
+    for (let i = 0; i < q; i++)
+      new Float32Array(salloc, i * size << 2, size).fill(weights[i]);
+
+    const calloc = new ArrayBuffer(size * q << 2);
+    for (let i = 0; i < q; i++)
+      new Float32Array(calloc, i * size << 2, size);
+
+    this.streamed = new Float32Array(salloc);
+    this.collided = new Float32Array(calloc);
+    this.macros = new Float32Array(size*4);
+    this.stationary = new Float32Array(size).fill(w0);
+  }
+
+  public step(viscosity: number, barriers: boolean[]) {
+    const { xdim, ydim, zdim, macros, collided, streamed, stationary } = this;
+    const max = xdim * ydim * zdim;
+    
+    const tau = 3*viscosity + 0.5; // relaxation timescale
+    const omega = 1 / tau;
+    const invomega = 1 - omega;
+
+    update_macros(macros, stationary, streamed);
+    update_static(omega * w0, invomega, macros, stationary);
+    collide(omega, invomega, macros, collided, streamed);
+    stream(xdim, ydim, barriers, streamed, collided);
+  }
+
+  // Set all densities in a cell to their equilibrium values for a given velocity and density:
+  public setEquilibrium(x: number, y: number, z: number, ux: number, uy: number, uz: number, rho: number) {
+    const { xdim, ydim, zdim, streamed } = this;
+    const max = xdim * ydim * zdim;
+    const i = x+(y+z*ydim)*xdim;
+    this.macros[i<<2] = rho;
+
+    const u2 =  1 - 1.5 * (ux * ux + uy * uy + uz * uz);
+    
+    this.stationary[i] = w0 * rho * u2;
+    for (let j = 0; j < q; j++) {
+      const dir = c[j][0]*ux + c[j][1]*uy + c[j][2]*uz;
+      streamed[j * max + i] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
+    }
+  }
+}
