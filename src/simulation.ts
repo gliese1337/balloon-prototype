@@ -11,15 +11,21 @@ const opp = [ 1, 0, 3, 2, 5, 4, 7, 6 ];
 
 const q = 8;
 
-function update_macros(max: number, stationary: Float32Array, streamed: Float32Array[], macros: Float32Array) {
+function update_macros(
+  max: number,
+  stationary: Float32Array,
+  streamed: Float32Array[],
+  macros: Float32Array,
+) {
   for (let i = 0, im = 0; i < max; i++, im += 3) {
     let rho = stationary[i];  // macroscopic density
     let ux = 0, uy = 0; // macroscopic velocity components
     for (let j = 0; j < q; j++) {
       const v = streamed[j][i];
+      const cj = c[j];
       rho += v;
-      ux += c[j][0]*v;
-      uy += c[j][1]*v;
+      ux += cj[0]*v;
+      uy += cj[1]*v;
     }
 
     // hack for stability
@@ -44,11 +50,16 @@ function collide(
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);
     const dir = cx*ux + cy*uy;
     collided[i] = omega_w * macros[im] * (u2 + 3 * dir + 4.5 * dir * dir) +
-                          invomega * streamed[i];
+                  invomega * streamed[i];
   }
 }
 
-function update_static(max: number, omega_w: number, invomega: number, macros: Float32Array, stationary: Float32Array) {
+function update_static(
+  max: number,
+  omega_w: number, invomega: number,
+  macros: Float32Array,
+  stationary: Float32Array,
+) {
   for (let i = 0, im = 0; i < max; i++, im += 3) {
     const ux = macros[im + 1];
     const uy = macros[im + 2];
