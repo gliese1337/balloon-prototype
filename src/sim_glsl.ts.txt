@@ -1,0 +1,117 @@
+const w0 = 4/9;
+const weights = [1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36];
+const c: [number, number][] = [
+  [ 0,  1 ], [  0, -1 ],
+  [ 1,  0 ], [ -1,  0 ],
+  [ 1,  1 ], [ -1, -1 ],
+  [ 1, -1 ], [ -1,  1 ],
+];
+
+const opp = [ 1, 0, 3, 2, 5, 4, 7, 6 ];
+
+const q = 8;
+
+function update_macros(max: number, stationary: Float32Array, streamed: Float32Array[], macros: Float32Array) {
+  // run macros.glsl
+  // copy macro values back to CPU memory
+}
+
+function collide(
+  max: number, omega_w: number, invomega: number,
+  [cx, cy]: [number, number],
+  macros: Float32Array, streamed: Float32Array,
+  collided: Float32Array,
+) {
+  // run collide.glsl
+}
+
+function update_static(max: number, omega_w: number, invomega: number, macros: Float32Array, stationary: Float32Array) {
+  // run stationary.glsl
+}
+
+function stream(
+  xdim: number, max: number,
+  [cx, cy]: [number, number],
+  barriers: boolean[],
+  collided: Float32Array,
+  reflected: Float32Array,
+  streamed: Float32Array,
+) {
+  // run stream.glsl
+}
+
+function initPlane(gl: WebGL2RenderingContext, x: number, y: number, weight: number) {
+  const size = x * y;
+  const tex = gl.createTexture();
+
+  const level = 0;
+  const internalFormat = gl.R32F;
+  const border = 0;
+  const srcFormat = gl.R32F;
+  const srcType = gl.FLOAT;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+                x, y, border, srcFormat, srcType,
+                new Float32Array(size).fill(weight));
+  return tex;
+}
+
+export default class LatticeBoltzmann {
+  private stationary: WebGLTexture; // microscopic densities at 0 velocity
+  private streamed: WebGLTexture[]; // microscopic densities along each lattice direction
+  private collided: WebGLTexture[];
+  private macroTex: WebGLTexture;
+  public macros: Float32Array;    // macroscopic density & velocity
+
+  constructor(public readonly x: number, public readonly y: number) {
+
+    this.stationary = initPlane(gl, x, y, w0);
+
+    const streamed: WebGLTexture[] = [];
+    const collided: WebGLTexture[] = [];
+    for (let i = 0; i < q; i++) {
+      streamed.push(initPlane(gl, x, y, weights[i]));
+      collided.push(initPlane(gl, x, y, 0));
+    }
+
+    this.streamed = streamed;
+    this.collided = collided;
+    this.macroTex = initPlane(gl, x, y, 0);
+    this.macros = new Float32Array(x * y * 3);
+  }
+
+  public step(viscosity: number, barriers: boolean[]) {
+    const { x, y, macros, collided, stationary, streamed } = this;
+    const max = x * y;
+
+    const tau = 3*viscosity + 0.5; // relaxation timescale
+    const omega = 1 / tau;
+    const invomega = 1 - omega;
+
+    update_macros(max, stationary, streamed, macros);
+    for (let j = 0; j < q; j++) {
+      collide(max, omega * weights[j], invomega, c[j], macros, streamed[j], collided[j]);
+    }
+
+    update_static(max, omega * w0, invomega, macros, stationary);
+    for (let j = 0; j < q; j++) {
+      stream(xdim, max, c[j], barriers, collided[j], collided[opp[j]], streamed[j]);
+    }
+  }
+
+  // Set all densities in a cell to their equilibrium values for a given velocity and density:
+  public setEquilibrium(x: number, y: number, ux: number, uy: number, rho: number) {
+    const { xdim, ydim, streamed } = this;
+    const max = xdim * ydim;
+    const i = x + y*xdim;
+    this.macros[i * 3] = rho;
+
+    const u2 =  1 - 1.5 * (ux * ux + uy * uy);
+    
+    this.stationary[i] = w0 * rho * u2;
+    for (let j = 0, plane = 0; j < q; j++, plane += max) {
+      const dir = c[j][0]*ux + c[j][1]*uy;
+      streamed[j][i] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
+    }
+  }
+}
