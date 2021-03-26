@@ -17,10 +17,11 @@ function update_macros(max: number, macros: Float32Array, stationary: Float32Arr
     let ux = 0, uy = 0, uz = 0; // macroscopic velocity components
     for (let j = 0, ij = i; j < q; j++,ij+=max) {
       const v = streamed[ij];
+      const cj = c[j];
       rho += v;
-      ux += c[j][0]*v;
-      uy += c[j][1]*v;
-      uz += c[j][2]*v;
+      ux += cj[0]*v;
+      uy += cj[1]*v;
+      uz += cj[2]*v;
     }
 
     // hack for stability
@@ -34,21 +35,29 @@ function update_macros(max: number, macros: Float32Array, stationary: Float32Arr
 }
 
 function collide(
-  max: number, offset: number,
-  omega_w: number, invomega: number,
-  c: [number, number, number], macros: Float32Array,
-  collided: Float32Array, streamed: Float32Array,
+  max: number, omega: number, invomega: number,
+  macros: Float32Array, collided: Float32Array, streamed: Float32Array,
 ) {
-  const [cx, cy, cz] = c;
-  for (let i=0,im=0; i < max; i++,im+=4) {
-    const ux = macros[im+1];
-    const uy = macros[im+2];
-    const uz = macros[im+3];
+  
+  /*const imax = max * q;
+  for (let i = 0; i < imax; i++) {
+    const j = (i / max)|0;
+    const im = (i % max) << 2;*/
 
-    const u2 =  1 - 1.5 * (ux * ux + uy * uy + uz * uz);
-    const dir = cx*ux + cy*uy + cz*uz;
-    collided[i+offset] = omega_w * macros[im] * (u2 + 3 * dir + 4.5 * dir * dir) +
-                  invomega * streamed[i+offset];
+  const max4 = max << 2;
+  for (let j=0,i=0; j < q; j++) {
+    const [cx, cy, cz] = c[j];
+    const omega_w = omega * weights[j];
+    for (let im=0; im < max4; im+=4,i++) {
+      const ux = macros[im+1];
+      const uy = macros[im+2];
+      const uz = macros[im+3];
+
+      const u2 =  1 - 1.5 * (ux * ux + uy * uy + uz * uz);
+      const dir = cx*ux + cy*uy + cz*uz;
+      collided[i] = omega_w * macros[im] * (u2 + 3 * dir + 4.5 * dir * dir) +
+                    invomega * streamed[i];
+    }
   }
 }
 
@@ -65,14 +74,25 @@ function update_static(max: number, omega_w: number, invomega: number, macros: F
 
 function stream(
   max: number, xdim: number, ydim: number,
-  offset: number, oppset: number,
-  c: [number, number, number], barriers: boolean[],
-  streamed: Float32Array, collided: Float32Array,
+  barriers: boolean[], streamed: Float32Array, collided: Float32Array,
 ) {
-  const [cx, cy, cz] = c;
-  const shift = cx-(cy-cz*ydim)*xdim;
-  for (let i=0,im=0; i<max; i++,im+=4) {
-    streamed[i+offset] = collided[(barriers[i] ? oppset : offset) + ((i-shift+max)%max)];
+  /*const imax = max * q;
+  for (let i = 0; i < imax; i++) {
+    const j = (i / max)|0;
+    const idx = i % max;*/
+  for (let j=0,i=0; j < q; j++) {
+    const [cx, cy, cz] = c[j];
+    const oppindex = opp[j] * max;
+    const srcindex = j * max;
+    const shift = ((max<<1) - (cx-(cy-cz*ydim)*xdim))%max;
+    for (let offset=shift; offset < max; offset++,i++) {
+      const base = barriers[i] ? oppindex : srcindex;
+      streamed[i] = collided[base + offset];
+    }
+    for (let offset=0; offset < shift; offset++,i++) {
+      const base = barriers[i] ? oppindex : srcindex;
+      streamed[i] = collided[base + offset];
+    }
   }
 }
 
@@ -109,10 +129,8 @@ export default class LatticeBoltzmann {
 
     update_macros(max, macros, stationary, streamed);
     update_static(max, omega * w0, invomega, macros, stationary);
-    for (let j = 0; j < q; j++)
-      collide(max, max*j, omega * weights[j], invomega, c[j], macros, collided, streamed);
-    for (let j = 0; j < q; j++)
-      stream(max, xdim, ydim, j * max, opp[j] * max, c[j], barriers, streamed, collided);
+    collide(max, omega, invomega, macros, collided, streamed);
+    stream(max, xdim, ydim, barriers, streamed, collided);
   }
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
