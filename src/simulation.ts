@@ -82,15 +82,16 @@ export default class LatticeBoltzmann {
 
     this.stationary = new Float32Array(size).fill(w0);
 
-    const salloc = new ArrayBuffer(size * q << 2);
+    const plane_size = size * 4;
+    const alloc_size = q * plane_size;
+    const salloc = new ArrayBuffer(alloc_size);
+    const calloc = new ArrayBuffer(alloc_size);
     const streamed: Float32Array[] = [];
-    for (let i = 0; i < q; i++)
-      streamed.push(new Float32Array(salloc, i * size << 2, size).fill(weights[i]));
-
-    const calloc = new ArrayBuffer(size * q << 2);
     const collided: Float32Array[] = [];
-    for (let i = 0; i < q; i++)
-      collided.push(new Float32Array(calloc, i * size << 2, size));
+    for (let i = 0, p = 0; i < q; i++, p += plane_size) {
+      streamed.push(new Float32Array(salloc, p, size).fill(weights[i]));
+      collided.push(new Float32Array(calloc, p, size));
+    }
 
     this.streamed = streamed;
     this.collided = collided;
