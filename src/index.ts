@@ -99,7 +99,7 @@ function paintCanvas(LB: LatticeBoltzmann) {
     if (barrier[i]) {
       cIndex = nColors + 1;
     } else {
-      cIndex = (nColors * ((LB.rho[i]-1)*contrast + 0.5))|0;
+      cIndex = (nColors * ((LB.macros[i*3]-1)*contrast + 0.5))|0;
       if (cIndex < 0) cIndex = 0;
       else if (cIndex > nColors) cIndex = nColors;
     }
