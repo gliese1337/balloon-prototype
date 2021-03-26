@@ -31,39 +31,42 @@ function update_macros(max: number, streamed: Float32Array, macros: Float32Array
   }
 }
 
-function collide(max: number, omega: number, invomega: number, macros: Float32Array, streamed: Float32Array, collided: Float32Array) {
-  for (let j = 1, plane = max; j < q; j++, plane += max) {
-    const [cx, cy] = c[j];
-    const omega_w = omega * weights[j];
-    for (let i = 0, im = 0; i < max; i++, im += 3) {
-      const ux = macros[im+1];
-      const uy = macros[im+2];
+function collide(
+  max: number, omega_w: number, invomega: number,
+  [cx, cy]: [number, number], plane: number,
+  macros: Float32Array, streamed: Float32Array,
+  collided: Float32Array,
+) {
+  for (let i = 0, im = 0; i < max; i++, im += 3) {
+    const ux = macros[im+1];
+    const uy = macros[im+2];
 
-      const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-      const dir = cx*ux + cy*uy;
-      collided[plane + i] = omega_w * macros[im] * (u2 + 3 * dir + 4.5 * dir * dir) +
-                            invomega * streamed[plane + i];
-    }
+    const u2 =  1 - 1.5 * (ux * ux + uy * uy);
+    const dir = cx*ux + cy*uy;
+    collided[plane + i] = omega_w * macros[im] * (u2 + 3 * dir + 4.5 * dir * dir) +
+                          invomega * streamed[plane + i];
   }
 }
 
-function stationary(max: number, omega: number, invomega: number, macros: Float32Array, streamed: Float32Array) {
+function stationary(max: number, omega_w: number, invomega: number, macros: Float32Array, streamed: Float32Array) {
   for (let i = 0, im = 0; i < max; i++, im += 3) {
     const ux = macros[im + 1];
     const uy = macros[im + 2];
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-    streamed[i] = omega * weights[0] * macros[im] * u2 + invomega * streamed[i];
+    streamed[i] = omega_w * macros[im] * u2 + invomega * streamed[i];
   }
 }
 
-function stream(xdim: number, max: number, barriers: boolean[], collided: Float32Array, streamed: Float32Array) {
-  for (let j = 1, plane = max; j < q; j++, plane += max) {
-    const [cx, cy] = c[j];
-    const opp_plane = max * opp[j];
-    for (let i=0; i<max; i++) {
-      const source = barriers[i] ? opp_plane : plane;
-      streamed[plane + i] = collided[source + ((i-(cx-cy*xdim)+max)%max)];
-    }
+function stream(
+  xdim: number, max: number,
+  [cx, cy]: [number, number],
+  plane: number, opp_plane: number,
+  barriers: boolean[], collided: Float32Array,
+  streamed: Float32Array,
+) {
+  for (let i = 0; i < max; i++) {
+    const source = barriers[i] ? opp_plane : plane;
+    streamed[plane + i] = collided[source + ((i-(cx-cy*xdim)+max)%max)];
   }
 }
 
@@ -93,9 +96,16 @@ export default class LatticeBoltzmann {
     const invomega = 1 - omega;
 
     update_macros(max, streamed, macros);
-    collide(max, omega, invomega, macros, streamed, collided);
-    stationary(max, omega, invomega, macros, streamed);
-    stream(xdim, max, barriers, collided, streamed);
+    for (let j = 1, plane = max; j < q; j++, plane += max) {
+      const omega_w = omega * weights[j];
+      collide(max, omega_w, invomega, c[j], plane, macros, streamed, collided);
+    }
+
+    stationary(max, omega * weights[0], invomega, macros, streamed);
+    for (let j = 1, plane = max; j < q; j++, plane += max) {
+      const opp_plane = max * opp[j];
+      stream(xdim, max, c[j], plane, opp_plane, barriers, collided, streamed);
+    }
   }
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
