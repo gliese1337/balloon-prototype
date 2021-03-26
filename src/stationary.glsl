@@ -7,6 +7,6 @@ void main () {
   vec4 u = texture2D(macros, gl_FragCoord);
   vec3 v = u.xyz;
   float u2 =  1 - 1.5 * dot(v, v);
-  float output = omega_w * u.w * u2 + invomega * texture2D(streamed0, gl_FragCoord).r;
+  float output = omega_w * u.w * u2 + invomega * texture2D(streamed, gl_FragCoord).r;
   gl_FragColor = vec4(output);
 }
