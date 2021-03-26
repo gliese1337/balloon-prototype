@@ -87,12 +87,14 @@ function stream(xdim: number, max: number, viscosity: number, rho: Float32Array,
     if (barriers[i]) {
       // Handle bounce-back from barriers
       for (let j=1;j<q;j++) {
-        streamed[q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j] = collided[iq + opp[j]];
+        streamed[iq + j] = collided[q*((i-(cxs[j]-cys[j]*xdim)+max)%max) + opp[j]];
+        //streamed[q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j] = collided[iq + opp[j]];
       }
     } else {
       // Move particles along their velocity vector
       for (let j=1;j<q;j++) {
-        streamed[q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j] = collided[iq + j];
+        streamed[iq + j] = collided[q*((i-(cxs[j]-cys[j]*xdim)+max)%max) + j];
+        //streamed[q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j] = collided[iq + j];
       }
     }
   }
