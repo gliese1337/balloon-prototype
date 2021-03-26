@@ -5,25 +5,17 @@ const c: [number, number][] = [
   [ 1,  0 ], [ -1,  0 ],
   [ 1,  1 ], [ -1, -1 ],
   [ 1, -1 ], [ -1,  1 ],
-]
-const opp = [ 0, 2, 1, 4, 3, 6, 5, 8, 7];
+];
+
+const opp = [ 0, 2, 1, 4, 3, 6, 5, 8, 7 ];
 
 const q = 9;
 
-function createVectors(size: number) {
-  const wordsize = q*size;
-  const buffer = new Float32Array(wordsize);
-  for (let i = 0; i < wordsize; i+=q) {
-    buffer.set(weights, i);
-  }
-  return buffer;
-}
-
 function update_rho(max: number, streamed: Float32Array, rho: Float32Array) {
-  for (let i=0,iq=0; i<max; i++,iq+=q) {
-    let newrho = streamed[iq];  // macroscopic density
-    for (let j = 1; j < q; j++) {
-      const v = streamed[iq+j];
+  for (let i = 0; i < max; i++) {
+    let newrho = streamed[i];  // macroscopic density
+    for (let j = 1, plane = max; j < q; j++, plane += max) {
+      const v = streamed[plane + i];
       newrho += v;
     }
 
@@ -33,10 +25,10 @@ function update_rho(max: number, streamed: Float32Array, rho: Float32Array) {
 }
 
 function update_velocities(max: number, rho: Float32Array, streamed: Float32Array, velocities: Float32Array) {
-  for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
+  for (let i = 0,iv = 0; i < max; i++, iv += 2) {
     let ux = 0, uy = 0; // macroscopic velocity components
-    for (let j = 1; j < q; j++) {
-      const v = streamed[iq+j];
+    for (let j = 1, plane = max; j < q; j++, plane += max) {
+      const v = streamed[plane + i];
       ux += c[j][0]*v;
       uy += c[j][1]*v;
     }
@@ -48,41 +40,37 @@ function update_velocities(max: number, rho: Float32Array, streamed: Float32Arra
 }
 
 function collide(max: number, omega: number, invomega: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array, collided: Float32Array) {
-  for (let j = 1; j < q; j++) {
+  for (let j = 1, plane = max; j < q; j++, plane += max) {
     const [cx, cy] = c[j];
     const omega_w = omega * weights[j];
-    for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
+    for (let i = 0, iv = 0; i < max; i++, iv += 2) {
       const ux = velocities[iv];
       const uy = velocities[iv+1];
 
       const u2 =  1 - 1.5 * (ux * ux + uy * uy);
       const dir = cx*ux + cy*uy;
-      collided[iq+j] = omega_w * rho[i] * (u2 + 3 * dir + 4.5 * dir * dir) +
-                       invomega * streamed[iq+j];
+      collided[plane + i] = omega_w * rho[i] * (u2 + 3 * dir + 4.5 * dir * dir) +
+                       invomega * streamed[plane + i];
     }
   }
 }
 
 function stationary(max: number, omega: number, invomega: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array) {
-  for (let j=1;j<q;j++) {
-    for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
-      const ux = velocities[iv];
-      const uy = velocities[iv+1];
-      const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-      streamed[iq] = omega * weights[0] * rho[i] * u2 + invomega * streamed[iq];
-    }
+  for (let i = 0, iv = 0; i < max; i++, iv += 2) {
+    const ux = velocities[iv];
+    const uy = velocities[iv+1];
+    const u2 =  1 - 1.5 * (ux * ux + uy * uy);
+    streamed[i] = omega * weights[0] * rho[i] * u2 + invomega * streamed[i];
   }
 }
 
 function stream(xdim: number, max: number, barriers: boolean[], collided: Float32Array, streamed: Float32Array) {
-  for (let j=1;j<q;j++) {
+  for (let j = 1, plane = max; j < q; j++, plane += max) {
     const [cx, cy] = c[j];
-    for (let i=0,iq=0; i<max; i++,iq+=q) {    
-      if (barriers[i]) {
-        streamed[iq + j] = collided[q*((i-(cx-cy*xdim)+max)%max) + opp[j]];
-      } else {
-        streamed[iq + j] = collided[q*((i-(cx-cy*xdim)+max)%max) + j];
-      }
+    const opp_plane = max * opp[j];
+    for (let i=0; i<max; i++) {
+      const source = barriers[i] ? opp_plane : plane;
+      streamed[plane + i] = collided[source + ((i-(cx-cy*xdim)+max)%max)];
     }
   }
 }
@@ -95,8 +83,13 @@ export default class LatticeBoltzmann {
 
   constructor(public readonly xdim: number, public readonly ydim: number) {
     const size = xdim * ydim;
-    this.streamed = createVectors(size);
-    this.collided = createVectors(size);
+
+    const salloc = new ArrayBuffer(size * q << 2);
+    for (let i = 0; i < q; i++)
+      new Float32Array(salloc, i * size << 2, size).fill(weights[i]);
+
+    this.streamed = new Float32Array(salloc);
+    this.collided = new Float32Array(size * q);
     this.rho = new Float32Array(size);
     this.velocities = new Float32Array(size*2);
   }
@@ -118,15 +111,15 @@ export default class LatticeBoltzmann {
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
   public setEquilibrium(x: number, y: number, ux: number, uy: number, rho: number) {
-    const { xdim, streamed } = this;
+    const { xdim, ydim, streamed } = this;
+    const max = xdim * ydim;
     const i = x + y*xdim;
     this.rho[i] = rho;
 
-    const iq = i*q;
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-    for (let j = 0; j < q; j++) {
+    for (let j = 0, plane = 0; j < q; j++, plane += max) {
       const dir = c[j][0]*ux + c[j][1]*uy;
-      streamed[iq+j] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
+      streamed[plane + i] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
     }
   }
 }
