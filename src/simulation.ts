@@ -1,6 +1,11 @@
 const weights = [4/9, 1/9, 1/9, 1/9, 1/9, 1/36, 1/36, 1/36, 1/36];
-const cxs =     [  0,   0,   0,   1,  -1,    1,   -1,    1,   -1];
-const cys =     [  0,   1,  -1,   0,   0,    1,   -1,   -1,    1];
+const c: [number, number][] = [
+  [ 0,  0 ],
+  [ 0,  1 ], [  0, -1 ],
+  [ 1,  0 ], [ -1,  0 ],
+  [ 1,  1 ], [ -1, -1 ],
+  [ 1, -1 ], [ -1,  1 ],
+]
 const opp =     [  0,   2,   1,   4,   3,    6,    5,    8,    7];
 
 const q = 9;
@@ -32,8 +37,8 @@ function update_velocities(max: number, rho: Float32Array, streamed: Float32Arra
     let ux = 0, uy = 0; // macroscopic velocity components
     for (let j = 1; j < q; j++) {
       const v = streamed[iq+j];
-      ux += cxs[j]*v;
-      uy += cys[j]*v;
+      ux += c[j][0]*v;
+      uy += c[j][1]*v;
     }
 
     const newrho = rho[i];
@@ -42,59 +47,47 @@ function update_velocities(max: number, rho: Float32Array, streamed: Float32Arra
   }
 }
 
-function collide(max: number, viscosity: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array, collided: Float32Array) {
-  const tau = 3*viscosity + 0.5; // relaxation timescale
-  const omega = 1 / tau;
-  const invomega = 1 - omega;
+function collide(max: number, omega: number, invomega: number, rho: Float32Array, velocities: Float32Array, streamed: Float32Array, collided: Float32Array) {
+  for (let j = 1; j < q; j++) {
+    const [cx, cy] = c[j];
+    for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
+      const ux = velocities[iv];
+      const uy = velocities[iv+1];
+      const newrho = rho[i];
 
-  for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
-    const ux = velocities[iv];
-    const uy = velocities[iv+1];
-    const newrho = rho[i];
+      /* Calculate collisions */
 
-    /* Calculate collisions */
+      /*
+      f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
+      f`_j = omega f_j^eq + (1 - omega) f_j 
+      c_s, the lattice speed of sound, is 1/sqrt(3)
+      Thus, 1/c_s^2 = 3
+            1/(2 c_s^4) = 4.5
+            1/(2 c_s^2) = 1.5
+      */
 
-    /*
-    f_j^eq = w_j rho (1 + (e_j|u) / c_s^2 + (e_j|u)^2/(2 c_s^4) - u^2/(2 c_s^2))
-    f`_j = omega f_j^eq + (1 - omega) f_j 
-    c_s, the lattice speed of sound, is 1/sqrt(3)
-    Thus, 1/c_s^2 = 3
-          1/(2 c_s^4) = 4.5
-          1/(2 c_s^2) = 1.5
-    */
-
-    const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-    for (let j = 1; j < q; j++) {
-      const dir = cxs[j]*ux + cys[j]*uy;
+      const u2 =  1 - 1.5 * (ux * ux + uy * uy);
+      const dir = cx*ux + cy*uy;
       const eq = weights[j] * newrho * (u2 + 3 * dir + 4.5 * dir * dir);
       collided[iq+j] = omega * eq + invomega * streamed[iq+j];
     }
   }
 }
 
-function stream(xdim: number, max: number, viscosity: number, rho: Float32Array, barriers: boolean[], velocities: Float32Array, collided: Float32Array, streamed: Float32Array) {
-  const tau = 3*viscosity + 0.5; // relaxation timescale
-  const omega = 1 / tau;
-  const invomega = 1 - omega;
+function stream(xdim: number, max: number, omega: number, invomega: number, rho: Float32Array, barriers: boolean[], velocities: Float32Array, collided: Float32Array, streamed: Float32Array) {
+  for (let j=1;j<q;j++) {
+    const [cx, cy] = c[j];
+    for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
+      const ux = velocities[iv];
+      const uy = velocities[iv+1];
 
-  for (let i=0,iv=0,iq=0; i<max; i++,iq+=q,iv+=2) {
-    const ux = velocities[iv];
-    const uy = velocities[iv+1];
-
-    const u2 =  1 - 1.5 * (ux * ux + uy * uy);
-    streamed[iq] = omega * weights[0] * rho[i] * u2 + invomega * streamed[iq];
+      const u2 =  1 - 1.5 * (ux * ux + uy * uy);
+      streamed[iq] = omega * weights[0] * rho[i] * u2 + invomega * streamed[iq];
     
-    if (barriers[i]) {
-      // Handle bounce-back from barriers
-      for (let j=1;j<q;j++) {
-        streamed[iq + j] = collided[q*((i-(cxs[j]-cys[j]*xdim)+max)%max) + opp[j]];
-        //streamed[q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j] = collided[iq + opp[j]];
-      }
-    } else {
-      // Move particles along their velocity vector
-      for (let j=1;j<q;j++) {
-        streamed[iq + j] = collided[q*((i-(cxs[j]-cys[j]*xdim)+max)%max) + j];
-        //streamed[q*((i+(cxs[j]+cys[j]*xdim)+max)%max)+j] = collided[iq + j];
+      if (barriers[i]) {
+        streamed[iq + j] = collided[q*((i-(cx-cy*xdim)+max)%max) + opp[j]];
+      } else {
+        streamed[iq + j] = collided[q*((i-(cx-cy*xdim)+max)%max) + j];
       }
     }
   }
@@ -117,10 +110,15 @@ export default class LatticeBoltzmann {
   public step(viscosity: number, barriers: boolean[]) {
     const { xdim, ydim, rho, velocities, collided, streamed } = this;
     const max = xdim * ydim;
+
+    const tau = 3*viscosity + 0.5; // relaxation timescale
+    const omega = 1 / tau;
+    const invomega = 1 - omega;
+
     update_rho(max, streamed, rho);
     update_velocities(max, rho, streamed, velocities);
-    collide(max, viscosity, rho, velocities, streamed, collided);
-    stream(xdim, max, viscosity, rho, barriers, velocities, collided, streamed);
+    collide(max, omega, invomega, rho, velocities, streamed, collided);
+    stream(xdim, max, omega, invomega, rho, barriers, velocities, collided, streamed);
   }
 
   // Set all densities in a cell to their equilibrium values for a given velocity and density:
@@ -132,7 +130,7 @@ export default class LatticeBoltzmann {
     const iq = i*q;
     const u2 =  1 - 1.5 * (ux * ux + uy * uy);
     for (let j = 0; j < q; j++) {
-      const dir = cxs[j]*ux + cys[j]*uy;
+      const dir = c[j][0]*ux + c[j][1]*uy;
       streamed[iq+j] = weights[j] * rho * (u2 + 3 * dir + 4.5 * dir * dir);
     }
   }
